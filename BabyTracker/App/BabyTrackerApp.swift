@@ -76,7 +76,7 @@ struct AppRootView: View {
             switch auth.authState {
             case .loading:
                 SplashView()
-            case .anonymous(let caregiver) where appState.hasCompletedOnboarding == false:
+            case .anonymous where !appState.hasCompletedOnboarding:
                 OnboardingView()
             case .anonymous, .authenticated:
                 MainTabView()
@@ -120,16 +120,44 @@ struct OnboardingView: View {
 struct MainTabView: View {
     var body: some View {
         TabView {
-            Text("Home")
+            HomeView()
                 .tabItem { Label("Home", systemImage: "house.fill") }
-            Text("Log")
-                .tabItem { Label("Log", systemImage: "plus.circle.fill") }
-            Text("History")
+            HistoryPlaceholder()
                 .tabItem { Label("History", systemImage: "clock.fill") }
-            Text("Insights")
+            InsightsPlaceholder()
                 .tabItem { Label("Insights", systemImage: "chart.line.uptrend.xyaxis") }
-            Text("Profile")
+            ProfilePlaceholder()
                 .tabItem { Label("Profile", systemImage: "person.2.fill") }
+        }
+    }
+}
+
+struct HistoryPlaceholder: View {
+    var body: some View {
+        NavigationStack {
+            ContentUnavailableView("History", systemImage: "clock.fill",
+                description: Text("All logged entries will appear here."))
+            .navigationTitle("History")
+        }
+    }
+}
+
+struct InsightsPlaceholder: View {
+    var body: some View {
+        NavigationStack {
+            ContentUnavailableView("Insights", systemImage: "chart.line.uptrend.xyaxis",
+                description: Text("Charts and trends will appear here."))
+            .navigationTitle("Insights")
+        }
+    }
+}
+
+struct ProfilePlaceholder: View {
+    var body: some View {
+        NavigationStack {
+            ContentUnavailableView("Profile", systemImage: "person.2.fill",
+                description: Text("Baby profiles and caregiver settings."))
+            .navigationTitle("Profile")
         }
     }
 }
