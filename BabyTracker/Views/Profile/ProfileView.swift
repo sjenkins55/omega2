@@ -24,6 +24,7 @@ struct ProfileView: View {
             List {
                 babiesSection
                 caregiverSection
+                healthSection
                 syncSection
                 settingsSection
                 appSection
@@ -151,6 +152,35 @@ struct ProfileView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Health section (per active baby)
+
+    private var healthSection: some View {
+        Section("Health & Growth") {
+            if let baby = activeBaby {
+                NavigationLink {
+                    GrowthView(baby: baby)
+                } label: {
+                    Label("Growth Charts", systemImage: "chart.line.uptrend.xyaxis")
+                }
+                NavigationLink {
+                    VaccineScheduleView(baby: baby)
+                } label: {
+                    Label("Vaccine Schedule", systemImage: "cross.vial.fill")
+                }
+                NavigationLink {
+                    MilestoneGalleryView(baby: baby)
+                } label: {
+                    Label("Milestones", systemImage: "star.circle.fill")
+                }
+            }
+        }
+    }
+
+    private var activeBaby: Baby? {
+        guard let id = appState.activeBabyID else { return babies.first }
+        return babies.first { $0.id == id }
     }
 
     // MARK: - Settings section

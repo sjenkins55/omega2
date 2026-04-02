@@ -61,6 +61,7 @@ struct BabyTrackerApp: App {
                 .environment(authService)
                 .environment(appState)
                 .task { await authService.resolveInitialAuthState() }
+                .task { NotificationService.shared.registerCategories() }
         }
     }
 }

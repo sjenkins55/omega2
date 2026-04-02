@@ -311,6 +311,17 @@ struct FeedLogSheet: View {
         // Placeholder sync — in real app use injected EntryRepository
         modelContext.insert(entry)
         try? modelContext.save()
+
+        // Reschedule feed reminder (default 3-hour interval)
+        Task {
+            await NotificationService.shared.scheduleFeedReminder(
+                babyID: babyID,
+                babyName: "Baby",       // resolved from context in a real app
+                lastFeedAt: entryTime,
+                intervalMinutes: 180
+            )
+        }
+
         onSave()
         dismiss()
     }

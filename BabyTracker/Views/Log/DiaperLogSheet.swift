@@ -149,6 +149,17 @@ struct DiaperLogSheet: View {
 
         modelContext.insert(entry)
         try? modelContext.save()
+
+        // Reschedule diaper reminder (default 3-hour interval)
+        Task {
+            await NotificationService.shared.scheduleDiaperReminder(
+                babyID: babyID,
+                babyName: "Baby",
+                lastChangeAt: entryTime,
+                intervalMinutes: 180
+            )
+        }
+
         onSave()
         dismiss()
     }
