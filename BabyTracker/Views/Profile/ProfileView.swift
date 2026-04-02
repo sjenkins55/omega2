@@ -7,6 +7,7 @@ struct ProfileView: View {
     @Environment(AppState.self) private var appState
     @Environment(AuthService.self) private var auth
     @Environment(SyncManager.self) private var syncManager
+    @Environment(SubscriptionService.self) private var sub
 
     @Query(filter: #Predicate<Baby> { !$0.isArchived }, sort: \Baby.dateOfBirth)
     private var babies: [Baby]
@@ -16,6 +17,7 @@ struct ProfileView: View {
     @State private var showAddBaby = false
     @State private var showInvite = false
     @State private var showSignIn = false
+    @State private var showPaywall = false
     @State private var editingBaby: Baby? = nil
     @State private var selectedBabyForInvite: UUID? = nil
 
@@ -55,6 +57,9 @@ struct ProfileView: View {
         .sheet(isPresented: $showSignIn) {
             SignInView()
         }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(trigger: .addBaby)
+        }
     }
 
     // MARK: - Babies section
@@ -74,9 +79,19 @@ struct ProfileView: View {
                 )
             }
             Button {
-                showAddBaby = true
+                if sub.canAddBaby(currentCount: babies.count) {
+                    showAddBaby = true
+                } else {
+                    showPaywall = true
+                }
             } label: {
-                Label("Add Baby", systemImage: "plus.circle.fill")
+                HStack {
+                    Label("Add Baby", systemImage: "plus.circle.fill")
+                    if !sub.canAddBaby(currentCount: babies.count) {
+                        Spacer()
+                        Image(systemName: "lock.fill").foregroundStyle(.secondary).font(.caption)
+                    }
+                }
             }
         }
     }

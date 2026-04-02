@@ -76,6 +76,11 @@ struct DiaperLogSheet: View {
                     ForEach(StoolColor.allCases, id: \.self) { color in
                         StoolColorSwatch(color: color, isSelected: stoolColor == color) {
                             stoolColor = stoolColor == color ? nil : color
+                            if [StoolColor.red, .black, .white].contains(color) {
+                                HapticManager.warning()
+                            } else {
+                                HapticManager.light()
+                            }
                         }
                     }
                 }
@@ -149,6 +154,7 @@ struct DiaperLogSheet: View {
 
         modelContext.insert(entry)
         try? modelContext.save()
+        HapticManager.success()
 
         // Reschedule diaper reminder (default 3-hour interval)
         Task {

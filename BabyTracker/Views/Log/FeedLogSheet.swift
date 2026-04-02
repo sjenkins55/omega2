@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import ActivityKit
 
 struct FeedLogSheet: View {
 
@@ -219,6 +220,7 @@ struct FeedLogSheet: View {
     // MARK: - Timer logic
 
     private func toggleSide(_ side: BreastSide) {
+        HapticManager.selection()
         let now = Date()
 
         if activeSide == side {
@@ -230,6 +232,10 @@ struct FeedLogSheet: View {
             sideStartTime = nil
             lastFinishedSide = side
             stopTimerTask()
+            Task { await LiveActivityService.shared.update(
+                side: .none_, leftSeconds: leftSeconds,
+                rightSeconds: rightSeconds, sideStartedAt: nil, isRunning: false
+            )}
         } else {
             // Stop the other side first
             if let running = activeSide {
@@ -242,6 +248,19 @@ struct FeedLogSheet: View {
             activeSide = side
             sideStartTime = now
             startTimerTask()
+
+            // Start or update Live Activity
+            let liveSide: BreastSideLive = side == .left ? .left : .right
+            Task {
+                if LiveActivityService.shared.isActive {
+                    await LiveActivityService.shared.update(
+                        side: liveSide, leftSeconds: leftSeconds,
+                        rightSeconds: rightSeconds, sideStartedAt: now, isRunning: true
+                    )
+                } else {
+                    await LiveActivityService.shared.start(babyName: "Baby", side: liveSide)
+                }
+            }
         }
     }
 
@@ -268,6 +287,7 @@ struct FeedLogSheet: View {
             activeSide = nil
         }
         stopTimerTask()
+        Task { await LiveActivityService.shared.stop() }
     }
 
     private var totalBreastSeconds: Double {
@@ -311,6 +331,7 @@ struct FeedLogSheet: View {
         // Placeholder sync — in real app use injected EntryRepository
         modelContext.insert(entry)
         try? modelContext.save()
+        HapticManager.success()
 
         // Reschedule feed reminder (default 3-hour interval)
         Task {

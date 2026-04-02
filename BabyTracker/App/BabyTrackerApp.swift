@@ -41,6 +41,8 @@ struct BabyTrackerApp: App {
     @State private var syncManager: SyncManager
     @State private var authService: AuthService
     @State private var appState = AppState()
+    @State private var subscriptionService = SubscriptionService()
+    @State private var toastContainer = ToastContainer()
 
     init() {
         let context = Self.modelContainer.mainContext
@@ -60,6 +62,8 @@ struct BabyTrackerApp: App {
                 .environment(syncManager)
                 .environment(authService)
                 .environment(appState)
+                .environment(subscriptionService)
+                .environment(toastContainer)
                 .task { await authService.resolveInitialAuthState() }
                 .task { NotificationService.shared.registerCategories() }
         }
@@ -124,5 +128,6 @@ struct MainTabView: View {
             ProfileView()
                 .tabItem { Label("Profile", systemImage: "person.2.fill") }
         }
+        .toastContainer()
     }
 }

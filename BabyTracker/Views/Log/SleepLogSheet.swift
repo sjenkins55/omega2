@@ -171,6 +171,7 @@ struct SleepLogSheet: View {
     // MARK: - Timer logic
 
     private func startTimer() {
+        HapticManager.heavy()
         if timerStart == nil { timerStart = Date() }
         timerRunning = true
         timerTask = Task {
@@ -186,6 +187,7 @@ struct SleepLogSheet: View {
     }
 
     private func stopTimer() {
+        HapticManager.heavy()
         timerRunning = false
         timerTask?.cancel()
         timerTask = nil
@@ -218,6 +220,7 @@ struct SleepLogSheet: View {
 
         modelContext.insert(entry)
         try? modelContext.save()
+        HapticManager.success()
         onSave()
         dismiss()
     }

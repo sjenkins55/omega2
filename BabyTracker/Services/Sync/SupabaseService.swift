@@ -1,135 +1,214 @@
 import Foundation
 
-/// Thin wrapper around the Supabase Swift SDK.
-/// All Supabase SDK calls are isolated here so the rest of the app
-/// stays decoupled from the specific backend.
+/// Supabase backend service.
 ///
-/// Add the Supabase Swift SDK via SPM:
-///   https://github.com/supabase/supabase-swift  (package: supabase-swift)
-///
-/// Once added, replace the placeholder stubs below with real SDK calls.
+/// SPM package: https://github.com/supabase/supabase-swift
+/// After adding the package, uncomment the import and the SDK calls below.
+/// The stub implementations are in place so the project compiles immediately.
+
+// import Supabase   ← uncomment after adding SPM package
 
 // MARK: - Configuration
 
 struct SupabaseConfig {
-    /// Set these in a Config.xcconfig (never hardcode in source)
     static var projectURL: URL {
-        guard let urlString = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String,
-              let url = URL(string: urlString) else {
-            fatalError("SUPABASE_URL not set in Info.plist / xcconfig")
+        guard let s = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String,
+              let url = URL(string: s) else {
+            fatalError("SUPABASE_URL not set in Config.xcconfig")
         }
         return url
     }
 
     static var anonKey: String {
-        guard let key = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String else {
-            fatalError("SUPABASE_ANON_KEY not set in Info.plist / xcconfig")
+        guard let k = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String else {
+            fatalError("SUPABASE_ANON_KEY not set in Config.xcconfig")
         }
-        return key
+        return k
     }
 }
 
-// MARK: - SupabaseService
+// MARK: - Service
 
 @MainActor
 @Observable
 final class SupabaseService {
 
-    // MARK: Auth state
+    // ── SDK client (uncomment after adding package) ──────────────────────────
+    // private let client = SupabaseClient(
+    //     supabaseURL: SupabaseConfig.projectURL,
+    //     supabaseKey: SupabaseConfig.anonKey
+    // )
+    // ─────────────────────────────────────────────────────────────────────────
+
     private(set) var currentUserID: String?
     private(set) var isAuthenticated: Bool = false
 
-    // MARK: Init
-    // When the Supabase Swift SDK is added:
-    // private let client = SupabaseClient(supabaseURL: SupabaseConfig.projectURL, supabaseKey: SupabaseConfig.anonKey)
-
     init() {
-        // Restore session on init
         Task { await restoreSession() }
     }
 
     // MARK: - Auth
 
     func signInWithApple(idToken: String, nonce: String) async throws {
-        // SDK call: try await client.auth.signInWithIdToken(credentials: .init(provider: .apple, idToken: idToken, nonce: nonce))
-        // After success: currentUserID = client.auth.currentUser?.id.uuidString; isAuthenticated = true
-        print("[Supabase] signInWithApple — stub")
+        // let session = try await client.auth.signInWithIdToken(
+        //     credentials: .init(provider: .apple, idToken: idToken, nonce: nonce)
+        // )
+        // currentUserID = session.user.id.uuidString
+        // isAuthenticated = true
+        print("[Supabase] signInWithApple — add SDK package to activate")
+        currentUserID = UUID().uuidString
+        isAuthenticated = true
     }
 
     func signInAnonymously() async throws {
-        // SDK call: try await client.auth.signInAnonymously()
-        print("[Supabase] signInAnonymously — stub")
+        // try await client.auth.signInAnonymously()
+        currentUserID = UUID().uuidString
     }
 
     func signOut() async throws {
-        // SDK call: try await client.auth.signOut()
+        // try await client.auth.signOut()
         currentUserID = nil
         isAuthenticated = false
     }
 
     private func restoreSession() async {
-        // SDK call: let session = try? await client.auth.session
-        // currentUserID = session?.user.id.uuidString; isAuthenticated = session != nil
+        // if let session = try? await client.auth.session {
+        //     currentUserID = session.user.id.uuidString
+        //     isAuthenticated = true
+        // }
     }
 
     // MARK: - CRUD
 
-    /// Upsert (insert or update) a record. `payload` is JSON-encoded model data.
+    /// Upsert a JSON record into the given table. Payload must contain "id" (UUID string).
     func upsert(table: String, payload: Data) async throws {
+        guard isAuthenticated else { throw SupabaseError.notAuthenticated }
         guard let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
             throw SupabaseError.invalidPayload
         }
-        // SDK call: try await client.from(table).upsert(json).execute()
-        print("[Supabase] upsert to \(table): \(json.keys.joined(separator: ", "))")
+
+        // try await client
+        //     .from(table)
+        //     .upsert(json, onConflict: "id")
+        //     .execute()
+
+        print("[Supabase] upsert → \(table): \(json.keys.sorted().joined(separator: ", "))")
     }
 
     func delete(table: String, id: String) async throws {
-        // SDK call: try await client.from(table).delete().eq("id", value: id).execute()
+        guard isAuthenticated else { throw SupabaseError.notAuthenticated }
+
+        // try await client
+        //     .from(table)
+        //     .delete()
+        //     .eq("id", value: id)
+        //     .execute()
+
         print("[Supabase] delete from \(table) id=\(id)")
     }
 
     func fetchAll(table: String, filter: String? = nil) async throws -> [[String: Any]] {
-        // SDK call:
-        //   var query = client.from(table).select()
-        //   if let filter { query = query.filter(filter) }
-        //   let response = try await query.execute()
-        //   return try response.value
-        print("[Supabase] fetchAll from \(table)")
+        guard isAuthenticated else { throw SupabaseError.notAuthenticated }
+
+        // var query = client.from(table).select()
+        // if let filter { query = query.filter(filter) }
+        // let response: [[String: Any]] = try await query.execute().value
+        // return response
+
         return []
+    }
+
+    // MARK: - Full initial sync
+    // Called once after sign-in to pull all server-side data for this user's babies.
+
+    func initialSync(caregiverID: String) async throws -> InitialSyncResult {
+        guard isAuthenticated else { throw SupabaseError.notAuthenticated }
+
+        // Fetch all babies the caregiver has access to, plus their entries.
+        // let accesses: [[String: Any]] = try await client
+        //     .from("baby_access")
+        //     .select("*, babies(*)")
+        //     .eq("caregiver_id", value: caregiverID)
+        //     .execute()
+        //     .value
+        //
+        // Then fetch entries per baby:
+        // let entries = try await client
+        //     .from("feed_entries")
+        //     .select()
+        //     .in("baby_id", values: babyIDs)
+        //     .gte("updated_at", value: lastSyncTimestamp)
+        //     .execute()
+        //     .value
+
+        return InitialSyncResult(babies: [], feedEntries: [], sleepEntries: [],
+                                 diaperEntries: [], caregivers: [])
     }
 
     // MARK: - Real-time
 
-    /// Returns an AsyncStream of remote changes for a given table + filter.
     func subscribe(table: String, filter: String) async -> AsyncStream<RemoteChange> {
-        // SDK call:
-        //   let channel = client.realtimeV2.channel("public:\(table)")
-        //   let changes = channel.postgresChange(AnyAction.self, schema: "public", table: table, filter: filter)
-        //   await channel.subscribe()
-        //   return AsyncStream { continuation in
-        //       Task { for await change in changes { continuation.yield(RemoteChange(...)) } }
-        //   }
-        return AsyncStream { continuation in
-            continuation.finish()
-        }
+        // let channel = client.realtimeV2.channel("public:\(table):\(filter)")
+        // let changes = channel.postgresChange(AnyAction.self, schema: "public",
+        //                                      table: table, filter: filter)
+        // await channel.subscribe()
+        //
+        // return AsyncStream { continuation in
+        //     Task {
+        //         for await action in changes {
+        //             switch action {
+        //             case .insert(let row):
+        //                 continuation.yield(RemoteChange(eventType: "INSERT",
+        //                     record: row.record.jsonObject, oldRecord: nil))
+        //             case .update(let row):
+        //                 continuation.yield(RemoteChange(eventType: "UPDATE",
+        //                     record: row.record.jsonObject, oldRecord: row.oldRecord.jsonObject))
+        //             case .delete(let row):
+        //                 continuation.yield(RemoteChange(eventType: "DELETE",
+        //                     record: [:], oldRecord: row.oldRecord.jsonObject))
+        //             default: break
+        //             }
+        //         }
+        //     }
+        // }
+
+        return AsyncStream { $0.finish() }
     }
 
-    // MARK: - Invite redemption
+    // MARK: - Edge Functions
 
     func redeemInvite(code: String) async throws -> InviteRedemptionResult {
-        // SDK call: Edge Function POST /functions/v1/redeem-invite { code }
-        // Returns baby_id, role, family_name
+        guard isAuthenticated else { throw SupabaseError.notAuthenticated }
+
+        // let response: InviteRedemptionResult = try await client.functions
+        //     .invoke("redeem-invite", options: .init(body: ["code": code]))
+        //     .value
+
         throw SupabaseError.notImplemented
     }
 
     func createInvite(babyID: UUID, role: CaregiverRole) async throws -> String {
-        // SDK call: Edge Function POST /functions/v1/create-invite { baby_id, role }
-        // Returns invite code
+        guard isAuthenticated else { throw SupabaseError.notAuthenticated }
+
+        // let response: [String: String] = try await client.functions
+        //     .invoke("create-invite",
+        //             options: .init(body: ["baby_id": babyID.uuidString, "role": role.rawValue]))
+        //     .value
+        // return response["code"] ?? ""
+
         throw SupabaseError.notImplemented
     }
 }
 
 // MARK: - Supporting types
+
+struct InitialSyncResult {
+    let babies: [[String: Any]]
+    let feedEntries: [[String: Any]]
+    let sleepEntries: [[String: Any]]
+    let diaperEntries: [[String: Any]]
+    let caregivers: [[String: Any]]
+}
 
 struct InviteRedemptionResult {
     let babyID: UUID
@@ -145,10 +224,10 @@ enum SupabaseError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidPayload: return "Could not encode data for sync"
-        case .notAuthenticated: return "You must be signed in to sync"
-        case .notImplemented: return "This feature is not yet available"
-        case .serverError(let msg): return msg
+        case .invalidPayload:    return "Could not encode data for sync"
+        case .notAuthenticated:  return "You must be signed in to sync"
+        case .notImplemented:    return "This feature requires an active Supabase connection"
+        case .serverError(let m): return m
         }
     }
 }
