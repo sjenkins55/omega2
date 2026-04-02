@@ -129,5 +129,6 @@ struct MainTabView: View {
                 .tabItem { Label("Profile", systemImage: "person.2.fill") }
         }
         .toastContainer()
+        .withCurrentCaregiver()
     }
 }

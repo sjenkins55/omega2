@@ -5,11 +5,13 @@ import ActivityKit
 struct FeedLogSheet: View {
 
     let babyID: UUID
+    var babyName: String = "Baby"
     let onSave: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncManager.self) private var syncManager
+    @Environment(\.currentCaregiver) private var currentCaregiver
 
     // Form state
     @State private var feedType: FeedType = .breast
@@ -258,7 +260,7 @@ struct FeedLogSheet: View {
                         rightSeconds: rightSeconds, sideStartedAt: now, isRunning: true
                     )
                 } else {
-                    await LiveActivityService.shared.start(babyName: "Baby", side: liveSide)
+                    await LiveActivityService.shared.start(babyName: babyName, side: liveSide)
                 }
             }
         }
@@ -303,8 +305,7 @@ struct FeedLogSheet: View {
     private func save() {
         stopAllTimers()
 
-        // Placeholder caregiver — in real app from @Environment(AuthService.self)
-        let caregiverID = UUID()
+        let caregiverID = currentCaregiver?.id ?? UUID()
         let entry = FeedEntry(babyID: babyID, caregiverID: caregiverID, feedType: feedType, timestamp: entryTime)
         entry.notes = notes.isEmpty ? nil : notes
 
@@ -328,7 +329,6 @@ struct FeedLogSheet: View {
             entry.pumpStorage = pumpStorage
         }
 
-        // Placeholder sync — in real app use injected EntryRepository
         modelContext.insert(entry)
         try? modelContext.save()
         HapticManager.success()
@@ -337,7 +337,7 @@ struct FeedLogSheet: View {
         Task {
             await NotificationService.shared.scheduleFeedReminder(
                 babyID: babyID,
-                babyName: "Baby",       // resolved from context in a real app
+                babyName: babyName,
                 lastFeedAt: entryTime,
                 intervalMinutes: 180
             )

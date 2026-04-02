@@ -71,8 +71,14 @@ struct HistoryView: View {
         } message: {
             Text("This cannot be undone.")
         }
-        .sheet(item: Binding(get: { vm.editingFeed }, set: { vm.editingFeed = $0 })) { _ in
-            Text("Edit feed — coming soon").presentationDetents([.medium])
+        .sheet(item: Binding(get: { vm.editingFeed }, set: { vm.editingFeed = $0 })) { entry in
+            EditFeedSheet(entry: entry) { Task { await vm.load() } }
+        }
+        .sheet(item: Binding(get: { vm.editingSleep }, set: { vm.editingSleep = $0 })) { entry in
+            EditSleepSheet(entry: entry) { Task { await vm.load() } }
+        }
+        .sheet(item: Binding(get: { vm.editingDiaper }, set: { vm.editingDiaper = $0 })) { entry in
+            EditDiaperSheet(entry: entry) { Task { await vm.load() } }
         }
     }
 
@@ -111,7 +117,12 @@ struct HistoryView: View {
                                     Label("Delete", systemImage: "trash")
                                 }
                                 Button {
-                                    // Edit — open appropriate sheet
+                                    switch entry {
+                                    case let f as FeedEntry:   vm.editingFeed   = f
+                                    case let s as SleepEntry:  vm.editingSleep  = s
+                                    case let d as DiaperEntry: vm.editingDiaper = d
+                                    default: break
+                                    }
                                 } label: {
                                     Label("Edit", systemImage: "pencil")
                                 }

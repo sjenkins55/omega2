@@ -63,19 +63,53 @@ final class HomeViewModel {
         stopTimer()
     }
 
+    // MARK: - Baby name (set by HomeView after building VM)
+    var babyName: String = "Baby"
+
     // MARK: - Load data
 
     func reload() {
         do {
-            lastFeed    = try entryRepo.lastFeed(for: babyID)
-            lastSleep   = try entryRepo.lastSleep(for: babyID)
-            lastDiaper  = try entryRepo.lastDiaper(for: babyID)
+            lastFeed     = try entryRepo.lastFeed(for: babyID)
+            lastSleep    = try entryRepo.lastSleep(for: babyID)
+            lastDiaper   = try entryRepo.lastDiaper(for: babyID)
             ongoingSleep = try entryRepo.ongoingSleep(for: babyID)
             try loadTodayTotals()
             updateWakeWindow()
+            pushWidgetSnapshot()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func pushWidgetSnapshot() {
+        let feedDetail: (Date, String)? = lastFeed.map { f in
+            let detail: String
+            switch f.feedType {
+            case .breast: detail = "Breast · \(Int(f.totalDurationSeconds / 60))m"
+            case .bottle: detail = f.volumeMl.map { "Bottle · \(Int($0))ml" } ?? "Bottle"
+            case .solids: detail = f.foodName.map { "Solids · \($0)" } ?? "Solids"
+            case .pump:
+                let total = (f.pumpLeftMl ?? 0) + (f.pumpRightMl ?? 0)
+                detail = total > 0 ? "Pump · \(Int(total))ml" : "Pump"
+            }
+            return (f.timestamp, detail)
+        }
+        let sleepInfo: (Date?, Bool, Date?)? = lastSleep.map {
+            ($0.endTime, $0.isOngoing, $0.isOngoing ? $0.startTime : nil)
+        }
+        let diaperInfo: (Date, String)? = lastDiaper.map { ($0.timestamp, $0.diaperType.rawValue) }
+
+        AppGroupStore.refreshSnapshot(
+            babyName: babyName,
+            babyID: babyID.uuidString,
+            lastFeed: feedDetail,
+            lastSleep: sleepInfo,
+            lastDiaper: diaperInfo,
+            todayFeeds: todayFeedCount,
+            todaySleepMinutes: todaySleepMinutes,
+            todayDiapers: todayDiaperCount
+        )
     }
 
     private func loadTodayTotals() throws {

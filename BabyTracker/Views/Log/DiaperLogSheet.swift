@@ -8,6 +8,7 @@ struct DiaperLogSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.currentCaregiver) private var currentCaregiver
 
     @State private var diaperType: DiaperType = .wet
     @State private var stoolColor: StoolColor? = nil
@@ -146,7 +147,7 @@ struct DiaperLogSheet: View {
     // MARK: - Save
 
     private func save() {
-        let caregiverID = UUID()
+        let caregiverID = currentCaregiver?.id ?? UUID()
         let entry = DiaperEntry(babyID: babyID, caregiverID: caregiverID, diaperType: diaperType, timestamp: entryTime)
         entry.stoolColor = stoolColor
         entry.stoolConsistency = stoolConsistency

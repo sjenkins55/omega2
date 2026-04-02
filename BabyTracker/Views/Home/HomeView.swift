@@ -6,6 +6,7 @@ struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AppState.self) private var appState
     @Environment(SyncManager.self) private var syncManager
+    @Environment(\.currentCaregiver) private var currentCaregiver
 
     // Fetch all non-archived babies for the switcher
     @Query(filter: #Predicate<Baby> { !$0.isArchived }, sort: \Baby.dateOfBirth)
@@ -186,16 +187,16 @@ struct HomeView: View {
 
     @ViewBuilder
     private func logSheet(_ sheet: HomeSheet, vm: HomeViewModel) -> some View {
+        let name = activeBaby?.name ?? "Baby"
         switch sheet {
         case .feed:
-            FeedLogSheet(babyID: vm.babyID) { vm.reload() }
+            FeedLogSheet(babyID: vm.babyID, babyName: name) { vm.reload() }
         case .sleep:
-            SleepLogSheet(babyID: vm.babyID) { vm.reload() }
+            SleepLogSheet(babyID: vm.babyID, babyName: name) { vm.reload() }
         case .diaper:
             DiaperLogSheet(babyID: vm.babyID) { vm.reload() }
         case .other:
-            Text("More options — coming soon")
-                .presentationDetents([.medium])
+            MoreLogSheet(babyID: vm.babyID, babyName: name) { vm.reload() }
         }
     }
 
@@ -214,15 +215,20 @@ struct HomeView: View {
 
     private func buildViewModel() {
         guard let babyID = appState.activeBabyID ?? babies.first?.id else { return }
-        // Rebuild ViewModel only if baby changed
         if viewModel?.babyID == babyID { return }
 
-        // ViewModels access current caregiver from environment in a real app.
-        // For now we create a placeholder caregiver to satisfy the repo init.
-        let placeholderCaregiver = Caregiver(displayName: "Me", role: .admin, isCurrentDevice: true)
-        let entryRepo = EntryRepository(modelContext: modelContext, syncManager: syncManager, currentCaregiver: placeholderCaregiver)
-        let babyRepo  = BabyRepository(modelContext: modelContext, syncManager: syncManager, currentCaregiver: placeholderCaregiver)
+        // Use authenticated caregiver if available, otherwise create a temporary admin
+        // caregiver for the device so the UI functions in anonymous mode.
+        let caregiver = currentCaregiver ?? {
+            let c = Caregiver(displayName: "Me", role: .admin, isCurrentDevice: true)
+            modelContext.insert(c)
+            try? modelContext.save()
+            return c
+        }()
+        let entryRepo = EntryRepository(modelContext: modelContext, syncManager: syncManager, currentCaregiver: caregiver)
+        let babyRepo  = BabyRepository(modelContext: modelContext, syncManager: syncManager, currentCaregiver: caregiver)
         let vm = HomeViewModel(babyID: babyID, modelContext: modelContext, entryRepo: entryRepo, babyRepo: babyRepo)
+        vm.babyName = babies.first { $0.id == babyID }?.name ?? "Baby"
         viewModel = vm
     }
 

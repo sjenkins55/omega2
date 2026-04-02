@@ -4,11 +4,13 @@ import SwiftData
 struct SleepLogSheet: View {
 
     let babyID: UUID
+    var babyName: String = "Baby"
     let onSave: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncManager.self) private var syncManager
+    @Environment(\.currentCaregiver) private var currentCaregiver
 
     enum LogMode { case timer, manual }
 
@@ -201,7 +203,7 @@ struct SleepLogSheet: View {
     private func save() {
         stopTimer()
 
-        let caregiverID = UUID() // placeholder
+        let caregiverID = currentCaregiver?.id ?? UUID()
         let entry = SleepEntry(babyID: babyID, caregiverID: caregiverID, sleepType: sleepType)
         entry.location = location
         entry.qualityRating = qualityRating > 0 ? qualityRating : nil
