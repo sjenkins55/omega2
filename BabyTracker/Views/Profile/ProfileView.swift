@@ -199,6 +199,11 @@ struct ProfileView: View {
                 } label: {
                     Label("Illness Log", systemImage: "cross.case.fill")
                 }
+                NavigationLink {
+                    AppointmentManagementView(baby: baby)
+                } label: {
+                    Label("Appointments", systemImage: "calendar.badge.plus")
+                }
             }
         }
     }

@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import AuthenticationServices
+import CryptoKit
 
 /// Manages authentication state and the current caregiver identity.
 /// Supports:
@@ -127,12 +128,9 @@ final class AuthService {
     }
 
     private func sha256(_ input: String) -> String {
-        // Uses CryptoKit — import CryptoKit at top of file in Xcode
-        // import CryptoKit
-        // let data = Data(input.utf8)
-        // let hash = SHA256.hash(data: data)
-        // return hash.compactMap { String(format: "%02x", $0) }.joined()
-        return input // placeholder until CryptoKit is imported in Xcode
+        let data = Data(input.utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Helpers

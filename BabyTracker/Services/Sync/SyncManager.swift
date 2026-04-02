@@ -227,10 +227,60 @@ final class SyncManager {
     }
 
     private func remoteID(for modelType: String, localID: UUID) -> String? {
-        // Look up the remoteID from the local SwiftData store
-        // Each model stores its Supabase UUID in the remoteID field
-        // This lookup is done via a raw fetch — kept simple intentionally
-        return nil // placeholder: implemented per-model in repositories
+        // Fetch the model by its local UUID and return the Supabase remoteID.
+        // All synced models carry a remoteID: String? field set when first synced.
+        switch modelType {
+        case "Baby":
+            let d = FetchDescriptor<Baby>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "FeedEntry":
+            let d = FetchDescriptor<FeedEntry>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "SleepEntry":
+            let d = FetchDescriptor<SleepEntry>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "DiaperEntry":
+            let d = FetchDescriptor<DiaperEntry>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "TemperatureEntry":
+            let d = FetchDescriptor<TemperatureEntry>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "Measurement":
+            let d = FetchDescriptor<Measurement>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "MilestoneEntry":
+            let d = FetchDescriptor<MilestoneEntry>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "VaccineEntry":
+            let d = FetchDescriptor<VaccineEntry>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "Appointment":
+            let d = FetchDescriptor<Appointment>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "Medication":
+            let d = FetchDescriptor<Medication>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "MedicationDose":
+            let d = FetchDescriptor<MedicationDose>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "Illness":
+            let d = FetchDescriptor<Illness>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "Caregiver":
+            let d = FetchDescriptor<Caregiver>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "BabyAccess":
+            let d = FetchDescriptor<BabyAccess>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "HandoffNote":
+            let d = FetchDescriptor<HandoffNote>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        case "CaregiverInvite":
+            let d = FetchDescriptor<CaregiverInvite>(predicate: #Predicate { $0.id == localID })
+            return (try? modelContext.fetch(d).first)?.remoteID
+        default:
+            return nil
+        }
     }
 
     private func markLocalModelSynced(type: String, id: UUID) {

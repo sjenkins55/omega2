@@ -117,7 +117,23 @@ struct SplashView: View {
 }
 
 struct MainTabView: View {
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+
     var body: some View {
+        Group {
+            if hSizeClass == .regular {
+                iPadLayout
+            } else {
+                iPhoneLayout
+            }
+        }
+        .toastContainer()
+        .withCurrentCaregiver()
+    }
+
+    // MARK: iPhone — TabView
+
+    private var iPhoneLayout: some View {
         TabView {
             HomeView()
                 .tabItem { Label("Home", systemImage: "house.fill") }
@@ -128,7 +144,49 @@ struct MainTabView: View {
             ProfileView()
                 .tabItem { Label("Profile", systemImage: "person.2.fill") }
         }
-        .toastContainer()
-        .withCurrentCaregiver()
+    }
+
+    // MARK: iPad — NavigationSplitView with sidebar
+
+    @State private var selectedTab: SidebarTab = .home
+
+    private var iPadLayout: some View {
+        NavigationSplitView {
+            List(SidebarTab.allCases, id: \.self, selection: $selectedTab) { tab in
+                Label(tab.title, systemImage: tab.icon)
+                    .tag(tab)
+            }
+            .navigationTitle("Baby Tracker")
+            .listStyle(.sidebar)
+        } detail: {
+            switch selectedTab {
+            case .home:     HomeView()
+            case .history:  HistoryView()
+            case .insights: InsightsView()
+            case .profile:  ProfileView()
+            }
+        }
+    }
+}
+
+enum SidebarTab: String, CaseIterable {
+    case home, history, insights, profile
+
+    var title: String {
+        switch self {
+        case .home:     return "Home"
+        case .history:  return "History"
+        case .insights: return "Insights"
+        case .profile:  return "Profile"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .home:     return "house.fill"
+        case .history:  return "clock.fill"
+        case .insights: return "chart.line.uptrend.xyaxis"
+        case .profile:  return "person.2.fill"
+        }
     }
 }

@@ -13,7 +13,7 @@ struct MoreLogSheet: View {
     @State private var activeEntry: MoreEntry? = nil
 
     enum MoreEntry: Identifiable {
-        case temperature, medicationDose, note
+        case temperature, medicationDose, note, illness, appointment
         var id: String { "\(self)" }
     }
 
@@ -40,29 +40,17 @@ struct MoreLogSheet: View {
                     Text("Log for \(babyName)")
                 }
 
-                Section {
-                    NavigationLink {
-                        Text("Illness log — open from Health section in Profile")
-                            .foregroundStyle(.secondary)
-                            .padding()
-                    } label: {
-                        MoreRow(icon: "cross.case.fill", color: .orange,
-                                title: "Illness",
-                                subtitle: "Track symptoms and duration") {}
+                Section("Health") {
+                    MoreRow(icon: "cross.case.fill", color: .orange,
+                            title: "Illness",
+                            subtitle: "Track symptoms and duration") {
+                        activeEntry = .illness
                     }
-                    NavigationLink {
-                        Text("Appointments — open from Health section in Profile")
-                            .foregroundStyle(.secondary)
-                            .padding()
-                    } label: {
-                        MoreRow(icon: "calendar.badge.plus", color: .blue,
-                                title: "Appointment",
-                                subtitle: "Schedule or log a visit") {}
+                    MoreRow(icon: "calendar.badge.plus", color: .blue,
+                            title: "Appointment",
+                            subtitle: "Schedule or log a visit") {
+                        activeEntry = .appointment
                     }
-                } header: {
-                    Text("Health")
-                } footer: {
-                    Text("Full health tracking is available in the Profile → Health & Growth section.")
                 }
             }
             .listStyle(.insetGrouped)
@@ -89,6 +77,16 @@ struct MoreLogSheet: View {
                 }
             case .note:
                 QuickNoteSheet(babyID: babyID, babyName: babyName) {
+                    onSave()
+                    activeEntry = nil
+                }
+            case .illness:
+                AddIllnessSheet(babyID: babyID, babyName: babyName) {
+                    onSave()
+                    activeEntry = nil
+                }
+            case .appointment:
+                AddAppointmentSheet(babyID: babyID, babyName: babyName) {
                     onSave()
                     activeEntry = nil
                 }

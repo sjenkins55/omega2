@@ -228,6 +228,16 @@ final class NotificationService {
         await center.removePendingNotificationRequests(withIdentifiers: [NotificationCategory.dailySummary])
     }
 
+    // MARK: - Cancel appointment reminders
+
+    func cancelAppointmentReminders(appointmentID: UUID) {
+        let ids = [
+            "\(NotificationCategory.appointment)-\(appointmentID)-0",
+            "\(NotificationCategory.appointment)-\(appointmentID)-1",
+        ]
+        center.removePendingNotificationRequests(withIdentifiers: ids)
+    }
+
     // MARK: - Cancel all for a baby
 
     func cancelAllReminders(for babyID: UUID) async {
