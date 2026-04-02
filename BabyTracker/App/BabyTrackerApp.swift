@@ -111,53 +111,17 @@ struct SplashView: View {
     }
 }
 
-struct OnboardingView: View {
-    var body: some View {
-        Text("Onboarding — coming soon")
-    }
-}
-
 struct MainTabView: View {
     var body: some View {
         TabView {
             HomeView()
                 .tabItem { Label("Home", systemImage: "house.fill") }
-            HistoryPlaceholder()
+            HistoryView()
                 .tabItem { Label("History", systemImage: "clock.fill") }
-            InsightsPlaceholder()
+            InsightsView()
                 .tabItem { Label("Insights", systemImage: "chart.line.uptrend.xyaxis") }
-            ProfilePlaceholder()
+            ProfileView()
                 .tabItem { Label("Profile", systemImage: "person.2.fill") }
-        }
-    }
-}
-
-struct HistoryPlaceholder: View {
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView("History", systemImage: "clock.fill",
-                description: Text("All logged entries will appear here."))
-            .navigationTitle("History")
-        }
-    }
-}
-
-struct InsightsPlaceholder: View {
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView("Insights", systemImage: "chart.line.uptrend.xyaxis",
-                description: Text("Charts and trends will appear here."))
-            .navigationTitle("Insights")
-        }
-    }
-}
-
-struct ProfilePlaceholder: View {
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView("Profile", systemImage: "person.2.fill",
-                description: Text("Baby profiles and caregiver settings."))
-            .navigationTitle("Profile")
         }
     }
 }
