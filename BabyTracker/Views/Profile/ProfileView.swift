@@ -189,6 +189,16 @@ struct ProfileView: View {
                 } label: {
                     Label("Milestones", systemImage: "star.circle.fill")
                 }
+                NavigationLink {
+                    MedicationManagementView(baby: baby)
+                } label: {
+                    Label("Medications", systemImage: "pill.fill")
+                }
+                NavigationLink {
+                    IllnessLogView(baby: baby)
+                } label: {
+                    Label("Illness Log", systemImage: "cross.case.fill")
+                }
             }
         }
     }
