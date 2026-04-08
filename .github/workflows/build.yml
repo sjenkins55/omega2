@@ -1,0 +1,92 @@
+name: Build & Demo
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:     # allows manual trigger from GitHub UI
+
+jobs:
+  build-simulator:
+    name: Build for Simulator
+    runs-on: macos-14   # Apple Silicon runner, Xcode 15.x
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── 2. Select Xcode version ───────────────────────────────────────────────
+      - name: Select Xcode 15.4
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      # ── 3. Install XcodeGen ───────────────────────────────────────────────────
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # ── 4. Generate .xcodeproj from project.yml ───────────────────────────────
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # ── 5. Build for iPhone 15 simulator (no signing required) ───────────────
+      - name: Build (simulator)
+        run: |
+          xcodebuild build \
+            -project BabyTracker.xcodeproj \
+            -scheme BabyTracker \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            -configuration Debug \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            | xcpretty --color
+
+      # ── 6. Package .app into a zip for Appetize.io ────────────────────────────
+      - name: Package simulator app
+        run: |
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "BabyTracker.app" \
+                        -path "*/Debug-iphonesimulator/*" | head -1)
+          echo "Found app at: $APP_PATH"
+          mkdir -p dist
+          cd "$(dirname "$APP_PATH")"
+          zip -r "$GITHUB_WORKSPACE/dist/BabyTracker-simulator.zip" BabyTracker.app
+          echo "APP_ZIP=$GITHUB_WORKSPACE/dist/BabyTracker-simulator.zip" >> $GITHUB_ENV
+
+      # ── 7. Upload .zip as build artifact ─────────────────────────────────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BabyTracker-simulator
+          path: dist/BabyTracker-simulator.zip
+          retention-days: 7
+
+      # ── 8. (Optional) Upload to Appetize.io ──────────────────────────────────
+      # Set APPETIZE_API_TOKEN in repo Settings → Secrets → Actions
+      # Get your token at: https://appetize.io/account (API section)
+      - name: Upload to Appetize.io
+        if: github.ref == 'refs/heads/main' && env.APPETIZE_API_TOKEN != ''
+        env:
+          APPETIZE_API_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
+          APPETIZE_PUBLIC_KEY: ${{ secrets.APPETIZE_PUBLIC_KEY }}   # empty on first run
+        run: |
+          if [ -z "$APPETIZE_PUBLIC_KEY" ]; then
+            # First upload — creates a new app
+            RESPONSE=$(curl -s -X POST \
+              "https://api.appetize.io/v1/apps" \
+              -H "Authorization: Bearer $APPETIZE_API_TOKEN" \
+              -F "file=@$APP_ZIP" \
+              -F "platform=ios")
+          else
+            # Subsequent uploads — update existing app
+            RESPONSE=$(curl -s -X POST \
+              "https://api.appetize.io/v1/apps/$APPETIZE_PUBLIC_KEY" \
+              -H "Authorization: Bearer $APPETIZE_API_TOKEN" \
+              -F "file=@$APP_ZIP" \
+              -F "platform=ios")
+          fi
+          PUBLIC_KEY=$(echo $RESPONSE | python3 -c "import sys,json; print(json.load(sys.stdin)['publicKey'])")
+          echo "Appetize demo URL: https://appetize.io/app/$PUBLIC_KEY"
+          echo "APPETIZE_PUBLIC_KEY=$PUBLIC_KEY" >> $GITHUB_STEP_SUMMARY
+          echo "### Demo URL" >> $GITHUB_STEP_SUMMARY
+          echo "https://appetize.io/app/$PUBLIC_KEY" >> $GITHUB_STEP_SUMMARY
