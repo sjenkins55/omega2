@@ -80,7 +80,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           syncStatus: const Value('pending'),
           remoteId: Value(currentCaregiver!.remoteId),
           createdAt: Value(currentCaregiver!.createdAt),
-          updatedAt: Value(currentCaregiver!.updatedAt!),
+          updatedAt: Value(currentCaregiver!.updatedAt),
         ),
       );
       state = AuthState.authenticated;
