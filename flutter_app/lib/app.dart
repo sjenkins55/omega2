@@ -9,75 +9,14 @@ import 'views/home/home_screen.dart';
 import 'views/history/history_screen.dart';
 import 'views/insights/insights_screen.dart';
 import 'views/profile/profile_screen.dart';
-
-// ── Placeholder health screens ─────────────────────────────────────────────────
-// Replace these with real implementations when ready.
-class _PlaceholderScreen extends StatelessWidget {
-  final String title;
-  const _PlaceholderScreen(this.title);
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(title)),
-        body: Center(child: Text(title, style: Theme.of(context).textTheme.titleLarge)),
-      );
-}
-
-class OnboardingScreen extends StatelessWidget {
-  const OnboardingScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) =>
-      const _PlaceholderScreen('Onboarding');
-}
-
-class GrowthScreen extends StatelessWidget {
-  final BabiesData? baby;
-  const GrowthScreen({super.key, this.baby});
-
-  @override
-  Widget build(BuildContext context) => const _PlaceholderScreen('Growth Charts');
-}
-
-class VaccineScreen extends StatelessWidget {
-  final BabiesData? baby;
-  const VaccineScreen({super.key, this.baby});
-
-  @override
-  Widget build(BuildContext context) => const _PlaceholderScreen('Vaccines');
-}
-
-class MilestoneScreen extends StatelessWidget {
-  final BabiesData? baby;
-  const MilestoneScreen({super.key, this.baby});
-
-  @override
-  Widget build(BuildContext context) => const _PlaceholderScreen('Milestones');
-}
-
-class MedicationScreen extends StatelessWidget {
-  final BabiesData? baby;
-  const MedicationScreen({super.key, this.baby});
-
-  @override
-  Widget build(BuildContext context) => const _PlaceholderScreen('Medications');
-}
-
-class IllnessScreen extends StatelessWidget {
-  final BabiesData? baby;
-  const IllnessScreen({super.key, this.baby});
-
-  @override
-  Widget build(BuildContext context) => const _PlaceholderScreen('Illness Log');
-}
-
-class AppointmentScreen extends StatelessWidget {
-  final BabiesData? baby;
-  const AppointmentScreen({super.key, this.baby});
-
-  @override
-  Widget build(BuildContext context) => const _PlaceholderScreen('Appointments');
-}
+import 'views/onboarding/onboarding_screen.dart';
+import 'views/health/growth_screen.dart';
+import 'views/health/vaccine_screen.dart';
+import 'views/health/milestone_screen.dart';
+import 'views/health/medication_screen.dart';
+import 'views/health/illness_screen.dart';
+import 'views/health/appointment_screen.dart';
+import 'database/app_database.dart';
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
@@ -101,27 +40,23 @@ final _routerProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(
             path: '/',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: HomeScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: HomeScreen()),
           ),
           GoRoute(
             path: '/history',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: HistoryScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: HistoryScreen()),
           ),
           GoRoute(
             path: '/insights',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: InsightsScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: InsightsScreen()),
           ),
           GoRoute(
             path: '/profile',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: ProfileScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: ProfileScreen()),
           ),
         ],
       ),
@@ -131,45 +66,33 @@ final _routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/health/growth',
-        builder: (context, state) {
-          final baby = state.extra as BabiesData?;
-          return GrowthScreen(baby: baby);
-        },
+        builder: (context, state) =>
+            GrowthScreen(baby: state.extra as BabiesData?),
       ),
       GoRoute(
         path: '/health/vaccines',
-        builder: (context, state) {
-          final baby = state.extra as BabiesData?;
-          return VaccineScreen(baby: baby);
-        },
+        builder: (context, state) =>
+            VaccineScreen(baby: state.extra as BabiesData?),
       ),
       GoRoute(
         path: '/health/milestones',
-        builder: (context, state) {
-          final baby = state.extra as BabiesData?;
-          return MilestoneScreen(baby: baby);
-        },
+        builder: (context, state) =>
+            MilestoneScreen(baby: state.extra as BabiesData?),
       ),
       GoRoute(
         path: '/health/medications',
-        builder: (context, state) {
-          final baby = state.extra as BabiesData?;
-          return MedicationScreen(baby: baby);
-        },
+        builder: (context, state) =>
+            MedicationScreen(baby: state.extra as BabiesData?),
       ),
       GoRoute(
         path: '/health/illness',
-        builder: (context, state) {
-          final baby = state.extra as BabiesData?;
-          return IllnessScreen(baby: baby);
-        },
+        builder: (context, state) =>
+            IllnessScreen(baby: state.extra as BabiesData?),
       ),
       GoRoute(
         path: '/health/appointments',
-        builder: (context, state) {
-          final baby = state.extra as BabiesData?;
-          return AppointmentScreen(baby: baby);
-        },
+        builder: (context, state) =>
+            AppointmentScreen(baby: state.extra as BabiesData?),
       ),
     ],
   );
