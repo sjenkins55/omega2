@@ -1,0 +1,162 @@
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from uuid import UUID
+from datetime import datetime
+from app.db.base import get_db
+from app.models.visit import Visit, VisitStatus
+from app.models.patient import Patient
+from app.schemas.visit import VisitCreate, VisitUpdate, VisitResponse, NoteSubmission
+
+router = APIRouter(prefix="/visits", tags=["visits"])
+
+
+@router.get("/{visit_id}", response_model=VisitResponse)
+async def get_visit(visit_id: UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Visit).where(Visit.id == visit_id))
+    visit = result.scalar_one_or_none()
+    if not visit:
+        raise HTTPException(404, "Visit not found")
+    return visit
+
+
+@router.post("", response_model=VisitResponse, status_code=201)
+async def create_visit(body: VisitCreate, db: AsyncSession = Depends(get_db)):
+    visit = Visit(**body.model_dump())
+    db.add(visit)
+    await db.flush()
+    await db.refresh(visit)
+    return visit
+
+
+@router.get("/{visit_id}/pre-brief")
+async def get_pre_visit_brief(visit_id: UUID, db: AsyncSession = Depends(get_db)):
+    """
+    Returns the AI-generated pre-visit brief for a scheduled visit.
+    Generates on demand and caches on the visit record.
+    """
+    from app.modules.ai_engine.visit_brief import generate_pre_visit_brief
+    from app.models.document import Document
+
+    result = await db.execute(select(Visit).where(Visit.id == visit_id))
+    visit = result.scalar_one_or_none()
+    if not visit:
+        raise HTTPException(404, "Visit not found")
+
+    if visit.pre_visit_brief:
+        return visit.pre_visit_brief
+
+    patient_result = await db.execute(select(Patient).where(Patient.id == visit.patient_id))
+    patient = patient_result.scalar_one_or_none()
+
+    recent_visits_result = await db.execute(
+        select(Visit)
+        .where(Visit.patient_id == visit.patient_id, Visit.id != visit_id, Visit.status == VisitStatus.completed)
+        .order_by(Visit.completed_at.desc())
+        .limit(5)
+    )
+    recent_visits = recent_visits_result.scalars().all()
+
+    docs_result = await db.execute(
+        select(Document).where(Document.patient_id == visit.patient_id).order_by(Document.received_at.desc()).limit(5)
+    )
+    docs = docs_result.scalars().all()
+
+    patient_dict = {c.name: getattr(patient, c.name) for c in Patient.__table__.columns}
+    visits_list = [{c.name: getattr(v, c.name) for c in Visit.__table__.columns} for v in recent_visits]
+    docs_list = [{c.name: getattr(d, c.name) for c in Document.__table__.columns} for d in docs]
+
+    brief = await generate_pre_visit_brief(patient_dict, visits_list, docs_list)
+
+    visit.pre_visit_brief = brief
+    await db.flush()
+    return brief
+
+
+@router.post("/{visit_id}/start")
+async def start_visit(visit_id: UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Visit).where(Visit.id == visit_id))
+    visit = result.scalar_one_or_none()
+    if not visit:
+        raise HTTPException(404, "Visit not found")
+    visit.status = VisitStatus.in_progress
+    visit.started_at = datetime.utcnow()
+    await db.flush()
+    return {"status": "started", "visit_id": str(visit_id)}
+
+
+@router.post("/{visit_id}/submit-note")
+async def submit_note(visit_id: UUID, body: NoteSubmission, db: AsyncSession = Depends(get_db)):
+    """
+    Accept a free-text or transcribed note, run AI processing,
+    auto-generate SOAP note + action items + workflow triggers.
+    """
+    from app.modules.ai_engine.visit_brief import process_visit_note
+    from app.modules.workflows.engine import workflow_engine
+
+    result = await db.execute(select(Visit).where(Visit.id == visit_id))
+    visit = result.scalar_one_or_none()
+    if not visit:
+        raise HTTPException(404, "Visit not found")
+
+    patient_result = await db.execute(select(Patient).where(Patient.id == visit.patient_id))
+    patient = patient_result.scalar_one_or_none()
+    patient_dict = {c.name: getattr(patient, c.name) for c in Patient.__table__.columns}
+
+    visit.raw_note = body.raw_note
+    visit.ai_processing_status = "processing"
+    await db.flush()
+
+    structured = await process_visit_note(body.raw_note, patient_dict, visit.visit_type)
+
+    visit.structured_note = structured
+    visit.subjective = structured.get("subjective")
+    visit.objective = structured.get("objective")
+    visit.assessment = structured.get("assessment")
+    visit.plan = structured.get("plan")
+    visit.vital_signs = structured.get("vital_signs")
+    visit.clinical_findings = structured.get("clinical_findings")
+    visit.action_items = structured.get("action_items", [])
+    visit.ai_processing_status = "completed"
+
+    if body.finalize:
+        visit.status = VisitStatus.completed
+        visit.completed_at = datetime.utcnow()
+        visit.note_finalized = True
+
+        triggers = structured.get("workflow_triggers", [])
+        run_ids = []
+        for trig in triggers:
+            payload = {
+                "patient_id": str(visit.patient_id),
+                "visit_id": str(visit_id),
+                "clinician_id": str(visit.clinician_id) if visit.clinician_id else None,
+                **trig.get("payload", {}),
+            }
+            ids = await workflow_engine.trigger(trig["trigger_type"], payload, db)
+            run_ids.extend(ids)
+
+        visit.triggered_workflows = run_ids
+
+        # Also fire visit_completed trigger
+        await workflow_engine.trigger("visit_completed", {
+            "patient_id": str(visit.patient_id),
+            "visit_id": str(visit_id),
+            "visit_type": visit.visit_type,
+        }, db)
+
+    await db.flush()
+    return {"structured_note": structured, "action_items": visit.action_items}
+
+
+@router.patch("/{visit_id}", response_model=VisitResponse)
+async def update_visit(visit_id: UUID, body: VisitUpdate, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Visit).where(Visit.id == visit_id))
+    visit = result.scalar_one_or_none()
+    if not visit:
+        raise HTTPException(404, "Visit not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(visit, field, value)
+    await db.flush()
+    await db.refresh(visit)
+    return visit
