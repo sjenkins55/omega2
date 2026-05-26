@@ -1,36 +1,29 @@
-"""Generate AI pre-visit briefs and post-visit action items."""
-from datetime import datetime
+"""
+Visit AI functions — upgraded to use the tool-use agent loop.
+Claude now iteratively queries FHIR tools instead of receiving a one-shot data dump.
+"""
 import json
-from app.modules.ai_engine.client import get_ai_client
+from app.modules.ai_engine.agent_loop import run_agent
 from app.core.config import get_settings
 
 settings = get_settings()
 
-SYSTEM_PROMPT = """You are a clinical AI assistant embedded in a home care EMR for an organization like ConcertoCare.
-You analyze patient records to support skilled clinicians visiting patients at home.
-Be concise, clinically precise, and always flag safety concerns clearly.
-Never fabricate clinical data. If information is missing, say so explicitly."""
 
-
-async def generate_pre_visit_brief(patient_data: dict, recent_visits: list[dict], recent_docs: list[dict]) -> dict:
+async def generate_pre_visit_brief(patient_id: str, visit_id: str, db) -> dict:
     """
-    Analyze patient context and return a structured pre-visit brief.
-    Answers: what to focus on, what changed, what risks exist, what gaps to close.
+    Generate a pre-visit brief by letting Claude query the patient's record
+    iteratively via FHIR tools, then produce a structured brief.
     """
-    client = get_ai_client()
+    task = f"""\
+You are preparing a pre-visit brief for patient ID {patient_id} (visit ID {visit_id}).
 
-    context = {
-        "patient": patient_data,
-        "recent_visits": recent_visits[-5:] if recent_visits else [],
-        "recent_documents": recent_docs[-5:] if recent_docs else [],
-    }
+Use your FHIR tools to retrieve:
+1. The patient's active conditions and problem list
+2. Current medications
+3. Recent lab results and vital signs (last 30 days)
+4. The last 3-5 visit notes
 
-    prompt = f"""Review this home care patient's record and produce a pre-visit brief for today's clinician.
-
-Patient context (JSON):
-{json.dumps(context, indent=2, default=str)}
-
-Return a JSON object with exactly these keys:
+Then produce a structured pre-visit brief as a JSON object with exactly these keys:
 {{
   "priority_focus_areas": ["string"],
   "clinical_alerts": [{{"severity": "high|medium|low", "message": "string"}}],
@@ -44,46 +37,47 @@ Return a JSON object with exactly these keys:
   "visit_goals": ["string"]
 }}
 
-Return only valid JSON, no markdown fences."""
+Return ONLY the JSON object, no prose."""
 
-    response = await client.messages.create(
-        model=settings.ai_model,
-        max_tokens=2000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    output = await run_agent(task, patient_id, db, model=settings.ai_model)
+    raw = output["result"]
 
     try:
-        return json.loads(response.content[0].text)
+        brief = json.loads(raw)
     except json.JSONDecodeError:
-        # Attempt extraction if model added prose
-        text = response.content[0].text
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        return json.loads(text[start:end])
+        start, end = raw.find("{"), raw.rfind("}") + 1
+        brief = json.loads(raw[start:end]) if start != -1 else {"error": "Failed to parse brief", "raw": raw}
+
+    brief["_meta"] = {"rounds": output["rounds"], "tool_calls": len(output["tool_calls"]), "model": output["model"]}
+    return brief
 
 
-async def process_visit_note(raw_note: str, patient_data: dict, visit_type: str) -> dict:
+async def process_visit_note(raw_note: str, patient_id: str, visit_type: str, db) -> dict:
     """
-    Transform a free-text or transcribed visit note into structured SOAP format
-    and auto-generate action items + workflow triggers.
+    Process a raw/dictated visit note using the agent loop.
+    Claude can query prior visits and current meds to fill in context
+    before structuring the SOAP note and generating action items.
     """
-    client = get_ai_client()
+    task = f"""\
+You are structuring a {visit_type} home visit note for patient ID {patient_id}.
 
-    prompt = f"""You are processing a {visit_type} home visit note.
+First, use your tools to retrieve:
+- Current medications (to cross-reference the clinician's note)
+- Active conditions (to inform the assessment)
+- Last 2 visit notes (to identify changes)
 
-Patient context:
-{json.dumps(patient_data, indent=2, default=str)}
+Then process this raw clinician note:
 
-Clinician's raw note:
+---
 {raw_note}
+---
 
-Extract and return a JSON object with:
+Return a JSON object with:
 {{
-  "subjective": "patient-reported symptoms, complaints, functional status",
-  "objective": "measurable findings: vitals, exam, functional scores",
-  "assessment": "clinical interpretation, diagnosis updates",
-  "plan": "next steps, orders, referrals",
+  "subjective": "patient-reported symptoms and history",
+  "objective": "measurable exam findings",
+  "assessment": "clinical interpretation",
+  "plan": "next steps",
   "vital_signs": {{"bp": "", "hr": "", "rr": "", "temp": "", "o2_sat": "", "weight": "", "pain_score": ""}},
   "clinical_findings": {{}},
   "action_items": [
@@ -92,42 +86,42 @@ Extract and return a JSON object with:
   "workflow_triggers": [
     {{"trigger_type": "string", "reason": "string", "payload": {{}}}}
   ],
-  "coding_suggestions": [{{"code": "ICD-10 code", "description": "string"}}],
+  "coding_suggestions": [{{"code": "ICD-10", "description": "string"}}],
   "quality_measures": ["string"],
   "note_summary": "2-3 sentence visit summary"
 }}
 
-Return only valid JSON."""
+Return ONLY the JSON object."""
 
-    response = await client.messages.create(
-        model=settings.ai_model,
-        max_tokens=3000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    output = await run_agent(task, patient_id, db, model=settings.ai_model)
+    raw = output["result"]
 
     try:
-        return json.loads(response.content[0].text)
+        structured = json.loads(raw)
     except json.JSONDecodeError:
-        text = response.content[0].text
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        return json.loads(text[start:end])
+        start, end = raw.find("{"), raw.rfind("}") + 1
+        structured = json.loads(raw[start:end]) if start != -1 else {"error": "Parse failed", "raw": raw}
+
+    structured["_meta"] = {"rounds": output["rounds"], "tool_calls": len(output["tool_calls"])}
+    return structured
 
 
-async def compute_risk_score(patient_data: dict, visit_history: list[dict]) -> dict:
-    """Compute an AI risk stratification score and contributing factors."""
-    client = get_ai_client()
+async def compute_risk_score(patient_id: str, db) -> dict:
+    """
+    Compute AI risk stratification using Opus for deeper reasoning.
+    Claude queries full patient history before scoring.
+    """
+    task = f"""\
+Compute a comprehensive risk stratification score for patient ID {patient_id}.
 
-    prompt = f"""Compute a risk stratification score for this home care patient.
+Use your tools to retrieve:
+- Active conditions and problem list
+- All current medications
+- Recent lab results (last 90 days)
+- Recent vital signs (last 30 days)
+- Last 5-10 visit notes
 
-Patient data:
-{json.dumps(patient_data, indent=2, default=str)}
-
-Visit history (last 10):
-{json.dumps(visit_history[-10:], indent=2, default=str)}
-
-Return JSON:
+Then return a JSON risk assessment:
 {{
   "risk_score": 0.0-1.0,
   "risk_tier": "low|medium|high|critical",
@@ -139,19 +133,16 @@ Return JSON:
   "rationale": "string"
 }}
 
-Return only valid JSON."""
+Return ONLY the JSON object."""
 
-    response = await client.messages.create(
-        model=settings.ai_model_opus,
-        max_tokens=1500,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    output = await run_agent(task, patient_id, db, model=settings.ai_model_opus, max_rounds=10)
+    raw = output["result"]
 
     try:
-        return json.loads(response.content[0].text)
+        score = json.loads(raw)
     except json.JSONDecodeError:
-        text = response.content[0].text
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        return json.loads(text[start:end])
+        start, end = raw.find("{"), raw.rfind("}") + 1
+        score = json.loads(raw[start:end]) if start != -1 else {"error": "Parse failed", "raw": raw}
+
+    score["_meta"] = {"rounds": output["rounds"], "tool_calls": len(output["tool_calls"]), "model": output["model"]}
+    return score

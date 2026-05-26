@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
@@ -36,7 +36,6 @@ async def get_pre_visit_brief(visit_id: UUID, db: AsyncSession = Depends(get_db)
     Generates on demand and caches on the visit record.
     """
     from app.modules.ai_engine.visit_brief import generate_pre_visit_brief
-    from app.models.document import Document
 
     result = await db.execute(select(Visit).where(Visit.id == visit_id))
     visit = result.scalar_one_or_none()
@@ -46,27 +45,7 @@ async def get_pre_visit_brief(visit_id: UUID, db: AsyncSession = Depends(get_db)
     if visit.pre_visit_brief:
         return visit.pre_visit_brief
 
-    patient_result = await db.execute(select(Patient).where(Patient.id == visit.patient_id))
-    patient = patient_result.scalar_one_or_none()
-
-    recent_visits_result = await db.execute(
-        select(Visit)
-        .where(Visit.patient_id == visit.patient_id, Visit.id != visit_id, Visit.status == VisitStatus.completed)
-        .order_by(Visit.completed_at.desc())
-        .limit(5)
-    )
-    recent_visits = recent_visits_result.scalars().all()
-
-    docs_result = await db.execute(
-        select(Document).where(Document.patient_id == visit.patient_id).order_by(Document.received_at.desc()).limit(5)
-    )
-    docs = docs_result.scalars().all()
-
-    patient_dict = {c.name: getattr(patient, c.name) for c in Patient.__table__.columns}
-    visits_list = [{c.name: getattr(v, c.name) for c in Visit.__table__.columns} for v in recent_visits]
-    docs_list = [{c.name: getattr(d, c.name) for c in Document.__table__.columns} for d in docs]
-
-    brief = await generate_pre_visit_brief(patient_dict, visits_list, docs_list)
+    brief = await generate_pre_visit_brief(str(visit.patient_id), str(visit_id), db)
 
     visit.pre_visit_brief = brief
     await db.flush()
@@ -99,15 +78,11 @@ async def submit_note(visit_id: UUID, body: NoteSubmission, db: AsyncSession = D
     if not visit:
         raise HTTPException(404, "Visit not found")
 
-    patient_result = await db.execute(select(Patient).where(Patient.id == visit.patient_id))
-    patient = patient_result.scalar_one_or_none()
-    patient_dict = {c.name: getattr(patient, c.name) for c in Patient.__table__.columns}
-
     visit.raw_note = body.raw_note
     visit.ai_processing_status = "processing"
     await db.flush()
 
-    structured = await process_visit_note(body.raw_note, patient_dict, visit.visit_type)
+    structured = await process_visit_note(body.raw_note, str(visit.patient_id), visit.visit_type, db)
 
     visit.structured_note = structured
     visit.subjective = structured.get("subjective")

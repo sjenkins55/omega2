@@ -66,21 +66,11 @@ async def update_patient(patient_id: UUID, body: PatientUpdate, db: AsyncSession
 
 @router.get("/{patient_id}/risk-brief")
 async def get_risk_brief(patient_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Trigger AI risk score computation for a patient."""
-    from app.models.visit import Visit
+    """Trigger AI risk score computation for a patient using the agent loop."""
     from app.modules.ai_engine.visit_brief import compute_risk_score
 
     result = await db.execute(select(Patient).where(Patient.id == patient_id))
-    patient = result.scalar_one_or_none()
-    if not patient:
+    if not result.scalar_one_or_none():
         raise HTTPException(404, "Patient not found")
 
-    visits_result = await db.execute(
-        select(Visit).where(Visit.patient_id == patient_id).order_by(Visit.scheduled_at.desc()).limit(10)
-    )
-    visits = visits_result.scalars().all()
-
-    patient_dict = {c.name: getattr(patient, c.name) for c in Patient.__table__.columns}
-    visits_list = [{c.name: getattr(v, c.name) for c in Visit.__table__.columns} for v in visits]
-
-    return await compute_risk_score(patient_dict, visits_list)
+    return await compute_risk_score(str(patient_id), db)
