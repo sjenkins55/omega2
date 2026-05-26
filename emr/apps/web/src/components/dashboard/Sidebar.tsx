@@ -3,19 +3,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard, Users, ClipboardList, FileText,
-  Zap, MessageSquare, Activity, Settings
+  LayoutDashboard, Users, CalendarDays, ClipboardList,
+  FileText, Zap, MessageSquare, Activity, Settings
 } from "lucide-react";
 
 const NAV = [
-  { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/patients", icon: Users, label: "Patients" },
-  { href: "/visits", icon: ClipboardList, label: "Visits" },
-  { href: "/ingestion", icon: FileText, label: "Inbox / Faxes" },
-  { href: "/workflows", icon: Zap, label: "Workflows" },
-  { href: "/engagement", icon: MessageSquare, label: "Engagement" },
-  { href: "/analytics", icon: Activity, label: "Analytics" },
-  { href: "/settings", icon: Settings, label: "Settings" },
+  { href: "/dashboard",  icon: LayoutDashboard, label: "Dashboard" },
+  { href: "/patients",   icon: Users,           label: "Patients" },
+  { href: "/schedule",   icon: CalendarDays,    label: "Schedule" },
+  { href: "/visits",     icon: ClipboardList,   label: "Visits" },
+  { href: "/ingestion",  icon: FileText,        label: "Inbox / Faxes" },
+  { href: "/workflows",  icon: Zap,             label: "Workflows" },
+  { href: "/engagement", icon: MessageSquare,   label: "Engagement" },
+  { href: "/analytics",  icon: Activity,        label: "Analytics" },
+  { href: "/settings",   icon: Settings,        label: "Settings" },
 ];
 
 export function Sidebar() {
