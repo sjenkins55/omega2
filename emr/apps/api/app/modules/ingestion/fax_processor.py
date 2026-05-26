@@ -65,12 +65,31 @@ Return only valid JSON."""
     )
 
     try:
-        return json.loads(response.content[0].text)
+        result = json.loads(response.content[0].text)
     except json.JSONDecodeError:
         text = response.content[0].text
         start = text.find("{")
         end = text.rfind("}") + 1
-        return json.loads(text[start:end])
+        result = json.loads(text[start:end])
+
+    if settings.use_comprehend_medical:
+        from app.integrations.comprehend_medical import extract_clinical_entities
+        cm = await extract_clinical_entities(raw_text)
+        if cm:
+            # Merge Comprehend Medical results — prefer higher-confidence CM data
+            if cm.get("medications"):
+                result["medications"] = cm["medications"]
+            if cm.get("diagnoses"):
+                result["diagnoses"] = cm["diagnoses"]
+            if cm.get("lab_values"):
+                result["lab_values"] = cm["lab_values"]
+            result.setdefault("extracted_data", {}).update({
+                "cm_entities":    cm.get("entities", []),
+                "cm_icd10_codes": cm.get("icd10_codes", []),
+                "cm_rxnorm_codes":cm.get("rxnorm_codes", []),
+            })
+
+    return result
 
 
 async def match_patient_from_document(extracted_data: dict, db_session) -> str | None:

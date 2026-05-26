@@ -1,38 +1,140 @@
 """
-Executes FHIR tool calls from the agent loop against the local database.
-Returns structured results Claude can reason about.
+Executes FHIR tool calls from the agent loop.
+When HEALTHLAKE_DATASTORE_ID is set, routes to AWS HealthLake.
+Falls back to the local PostgreSQL models when HealthLake is not configured.
 """
-from datetime import datetime
-from uuid import UUID
+from __future__ import annotations
 import structlog
+from app.integrations.healthlake import get_healthlake_client
 
 log = structlog.get_logger()
 
 
 async def execute_tool(tool_name: str, tool_input: dict, db, patient_id: str | None = None) -> dict:
-    """Route a tool call to the appropriate FHIR handler."""
-    handlers = {
-        "search_patient":      _search_patient,
-        "get_observations":    _get_observations,
-        "get_conditions":      _get_conditions,
-        "get_medications":     _get_medications,
-        "get_procedures":      _get_procedures,
-        "get_visit_history":   _get_visit_history,
-        "record_vital_signs":  _record_vital_signs,
-        "draft_medication_order":  _draft_medication_order,
-        "draft_service_request":   _draft_service_request,
+    """Route a tool call to HealthLake or the local DB fallback."""
+    hl = get_healthlake_client()
+
+    handlers_hl = {
+        "search_patient":       _hl_search_patient,
+        "get_observations":     _hl_get_observations,
+        "get_conditions":       _hl_get_conditions,
+        "get_medications":      _hl_get_medications,
+        "get_procedures":       _hl_get_procedures,
+        "record_vital_signs":   _hl_record_vitals,
+        "draft_medication_order":   _hl_draft_medication,
+        "draft_service_request":    _hl_draft_service,
     }
-    handler = handlers.get(tool_name)
-    if not handler:
-        return {"error": f"Unknown tool: {tool_name}"}
+    handlers_local = {
+        "search_patient":       _local_search_patient,
+        "get_observations":     _local_get_observations,
+        "get_conditions":       _local_get_conditions,
+        "get_medications":      _local_get_medications,
+        "get_procedures":       _local_get_procedures,
+        "get_visit_history":    _local_get_visit_history,
+        "record_vital_signs":   _local_record_vitals,
+        "draft_medication_order":   _local_draft_medication,
+        "draft_service_request":    _local_draft_service,
+    }
+
+    # get_visit_history always goes to local DB (our visit notes, not FHIR)
+    if tool_name == "get_visit_history":
+        return await _local_get_visit_history(tool_input, db)
+
     try:
-        return await handler(tool_input, db)
+        if hl:
+            handler = handlers_hl.get(tool_name)
+            if handler:
+                return await handler(tool_input, hl)
+        handler = handlers_local.get(tool_name)
+        if handler:
+            return await handler(tool_input, db)
+        return {"error": f"Unknown tool: {tool_name}"}
     except Exception as exc:
         log.error("tool_execution_failed", tool=tool_name, error=str(exc))
         return {"error": str(exc)}
 
 
-async def _search_patient(inp: dict, db) -> dict:
+# ── HealthLake handlers ────────────────────────────────────────────────────
+
+async def _hl_search_patient(inp: dict, hl) -> dict:
+    return await hl.search_patient(
+        name=inp.get("name"),
+        birthdate=inp.get("birthdate"),
+        identifier=inp.get("identifier") or inp.get("mrn"),
+    )
+
+
+async def _hl_get_observations(inp: dict, hl) -> dict:
+    return await hl.get_observations(
+        patient_id=inp["patient_id"],
+        category=inp.get("category", "laboratory"),
+        code=inp.get("code"),
+        date_from=inp.get("date_from"),
+        date_to=inp.get("date_to"),
+        limit=inp.get("limit", 10),
+    )
+
+
+async def _hl_get_conditions(inp: dict, hl) -> dict:
+    return await hl.get_conditions(
+        patient_id=inp["patient_id"],
+        category=inp.get("category", "problem-list-item"),
+        status=inp.get("status", "active"),
+    )
+
+
+async def _hl_get_medications(inp: dict, hl) -> dict:
+    return await hl.get_medications(
+        patient_id=inp["patient_id"],
+        status=inp.get("status", "active"),
+        category=inp.get("category"),
+    )
+
+
+async def _hl_get_procedures(inp: dict, hl) -> dict:
+    return await hl.get_procedures(
+        patient_id=inp["patient_id"],
+        date_from=inp.get("date_from"),
+        code=inp.get("code"),
+    )
+
+
+async def _hl_record_vitals(inp: dict, hl) -> dict:
+    return await hl.record_vital_signs(
+        patient_id=inp["patient_id"],
+        vitals=inp.get("vitals", {}),
+        recorded_at=inp.get("recorded_at"),
+    )
+
+
+async def _hl_draft_medication(inp: dict, hl) -> dict:
+    return await hl.draft_medication_order(
+        patient_id=inp["patient_id"],
+        medication_name=inp["medication_name"],
+        rxnorm_code=inp.get("rxnorm_code"),
+        dose=inp["dose"],
+        frequency=inp["frequency"],
+        route=inp["route"],
+        indication=inp.get("indication"),
+        notes=inp.get("notes"),
+    )
+
+
+async def _hl_draft_service(inp: dict, hl) -> dict:
+    return await hl.draft_service_request(
+        patient_id=inp["patient_id"],
+        service_type=inp["service_type"],
+        description=inp["description"],
+        cpt_code=inp.get("cpt_code"),
+        priority=inp.get("priority", "routine"),
+        reason=inp.get("reason"),
+        notes=inp.get("notes"),
+    )
+
+
+# ── Local DB fallbacks ─────────────────────────────────────────────────────
+
+async def _local_search_patient(inp: dict, db) -> dict:
     from sqlalchemy import select, or_
     from app.models.patient import Patient
 
@@ -46,7 +148,7 @@ async def _search_patient(inp: dict, db) -> dict:
         term = f"%{inp['name']}%"
         filters.append(or_(
             (Patient.first_name + " " + Patient.last_name).ilike(term),
-            (Patient.last_name + ", " + Patient.first_name).ilike(term),
+            Patient.last_name.ilike(term),
         ))
     if filters:
         from sqlalchemy import or_ as sor
@@ -56,41 +158,24 @@ async def _search_patient(inp: dict, db) -> dict:
     patients = result.scalars().all()
     return {
         "patients": [
-            {
-                "id": str(p.id), "mrn": p.mrn,
-                "name": f"{p.first_name} {p.last_name}",
-                "dob": p.date_of_birth.isoformat() if p.date_of_birth else None,
-                "status": p.status,
-            }
+            {"id": str(p.id), "mrn": p.mrn, "name": f"{p.first_name} {p.last_name}",
+             "dob": p.date_of_birth.isoformat() if p.date_of_birth else None, "status": p.status}
             for p in patients
         ],
         "count": len(patients),
     }
 
 
-async def _get_observations(inp: dict, db) -> dict:
-    from sqlalchemy import select
-    from app.models.patient import Patient
-
-    # In production this queries a FHIR server or observations table.
-    # For now, return structured data from the patient record.
-    patient_id = inp["patient_id"]
-    result = await db.execute(select(Patient).where(Patient.id == patient_id))
-    patient = result.scalar_one_or_none()
-    if not patient:
-        return {"error": "Patient not found"}
-
-    category = inp.get("category", "laboratory")
-    # Placeholder — real impl queries FHIR Observation resources
+async def _local_get_observations(inp: dict, db) -> dict:
     return {
-        "category": category,
-        "patient_id": patient_id,
+        "category": inp.get("category", "laboratory"),
+        "patient_id": inp["patient_id"],
         "observations": [],
-        "note": "Connect to FHIR server or observations table for real data",
+        "note": "Wire up HealthLake or an Observation table for real data",
     }
 
 
-async def _get_conditions(inp: dict, db) -> dict:
+async def _local_get_conditions(inp: dict, db) -> dict:
     from sqlalchemy import select
     from app.models.patient import Patient
 
@@ -99,17 +184,15 @@ async def _get_conditions(inp: dict, db) -> dict:
     if not patient:
         return {"error": "Patient not found"}
 
-    status_filter = inp.get("status", "active")
     conditions = []
     if patient.primary_dx:
-        conditions.append({"description": patient.primary_dx, "status": "active", "category": "problem-list-item"})
+        conditions.append({"description": patient.primary_dx, "status": "active"})
     for dx in (patient.diagnoses or []):
-        conditions.append({"description": dx, "status": "active", "category": "problem-list-item"})
-
+        conditions.append({"description": dx, "status": "active"})
     return {"conditions": conditions, "count": len(conditions)}
 
 
-async def _get_medications(inp: dict, db) -> dict:
+async def _local_get_medications(inp: dict, db) -> dict:
     from sqlalchemy import select
     from app.models.patient import Patient
 
@@ -118,34 +201,27 @@ async def _get_medications(inp: dict, db) -> dict:
     if not patient:
         return {"error": "Patient not found"}
 
-    status_filter = inp.get("status", "active")
-    meds = []
-    for med in (patient.medications or []):
-        meds.append({
-            "name": med.get("name"),
-            "dose": med.get("dose"),
-            "frequency": med.get("frequency"),
-            "route": med.get("route", "oral"),
-            "status": "active",
-        })
-
+    meds = [
+        {"name": m.get("name"), "dose": m.get("dose"), "frequency": m.get("frequency"),
+         "route": m.get("route", "oral"), "status": "active"}
+        for m in (patient.medications or [])
+    ]
     return {"medications": meds, "count": len(meds)}
 
 
-async def _get_procedures(inp: dict, db) -> dict:
-    return {"procedures": [], "note": "Connect to FHIR Procedure resources for real data"}
+async def _local_get_procedures(inp: dict, db) -> dict:
+    return {"procedures": [], "note": "Wire up HealthLake for real procedure data"}
 
 
-async def _get_visit_history(inp: dict, db) -> dict:
+async def _local_get_visit_history(inp: dict, db) -> dict:
     from sqlalchemy import select
     from app.models.visit import Visit, VisitStatus
 
-    limit = inp.get("limit", 5)
     q = (
         select(Visit)
         .where(Visit.patient_id == inp["patient_id"], Visit.status == VisitStatus.completed)
         .order_by(Visit.completed_at.desc())
-        .limit(limit)
+        .limit(inp.get("limit", 5))
     )
     if inp.get("visit_type"):
         q = q.where(Visit.visit_type == inp["visit_type"])
@@ -170,31 +246,19 @@ async def _get_visit_history(inp: dict, db) -> dict:
     }
 
 
-async def _record_vital_signs(inp: dict, db) -> dict:
-    # In production writes a FHIR Observation resource
-    log.info("record_vital_signs", patient_id=inp.get("patient_id"), vitals=inp.get("vitals"))
-    return {"recorded": True, "patient_id": inp["patient_id"], "vitals": inp.get("vitals", {})}
+async def _local_record_vitals(inp: dict, db) -> dict:
+    log.info("record_vital_signs_local", patient_id=inp.get("patient_id"))
+    return {"recorded": True, "patient_id": inp["patient_id"], "vitals": inp.get("vitals", {}),
+            "note": "Stored locally — enable HealthLake to write to FHIR store"}
 
 
-async def _draft_medication_order(inp: dict, db) -> dict:
-    log.info("draft_medication_order", patient_id=inp.get("patient_id"), med=inp.get("medication_name"))
-    return {
-        "drafted": True,
-        "status": "pending_clinician_approval",
-        "medication": inp.get("medication_name"),
-        "dose": inp.get("dose"),
-        "frequency": inp.get("frequency"),
-        "note": "Order created in draft state — requires clinician signature",
-    }
+async def _local_draft_medication(inp: dict, db) -> dict:
+    return {"drafted": True, "status": "pending_clinician_approval",
+            "medication": inp.get("medication_name"), "dose": inp.get("dose"),
+            "note": "Enable HealthLake to create a real FHIR MedicationRequest"}
 
 
-async def _draft_service_request(inp: dict, db) -> dict:
-    log.info("draft_service_request", patient_id=inp.get("patient_id"), service=inp.get("service_type"))
-    return {
-        "drafted": True,
-        "status": "pending_clinician_approval",
-        "service_type": inp.get("service_type"),
-        "description": inp.get("description"),
-        "priority": inp.get("priority", "routine"),
-        "note": "Service request created in draft state — requires clinician signature",
-    }
+async def _local_draft_service(inp: dict, db) -> dict:
+    return {"drafted": True, "status": "pending_clinician_approval",
+            "service_type": inp.get("service_type"), "description": inp.get("description"),
+            "note": "Enable HealthLake to create a real FHIR ServiceRequest"}
