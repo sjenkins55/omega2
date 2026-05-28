@@ -29,13 +29,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.api.routes import patients, visits, ingestion, workflows, engagement
+from app.models import territory as _territory_models  # ensure table is created
+from app.api.routes import patients, visits, ingestion, workflows, engagement, admin
 
 app.include_router(patients.router, prefix="/api/v1")
 app.include_router(visits.router, prefix="/api/v1")
 app.include_router(ingestion.router, prefix="/api/v1")
 app.include_router(workflows.router, prefix="/api/v1")
 app.include_router(engagement.router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
 
 
 @app.get("/health")

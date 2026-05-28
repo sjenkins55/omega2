@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
 from datetime import datetime
+from typing import Any
+from pydantic import BaseModel
 from app.db.base import get_db
 from app.models.visit import Visit, VisitStatus
 from app.models.patient import Patient
@@ -122,6 +124,96 @@ async def submit_note(visit_id: UUID, body: NoteSubmission, db: AsyncSession = D
 
     await db.flush()
     return {"structured_note": structured, "action_items": visit.action_items}
+
+
+class DirectNoteWrite(BaseModel):
+    """Write structured note fields directly — for API integrations and external tools."""
+    raw_note: str | None = None
+    subjective: str | None = None
+    objective: str | None = None
+    assessment: str | None = None
+    plan: str | None = None
+    vital_signs: dict[str, Any] | None = None
+    clinical_findings: dict[str, Any] | None = None
+    action_items: list[dict[str, Any]] | None = None
+    structured_note: dict[str, Any] | None = None
+    finalize: bool = False
+
+
+@router.post("/{visit_id}/notes")
+async def write_note_directly(
+    visit_id: UUID,
+    body: DirectNoteWrite,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Write note content directly into a visit without AI processing.
+    Accepts any combination of raw_note, SOAP fields, vitals, action items.
+    Use finalize=true to mark the visit completed and trigger workflows.
+    Intended for integrations: mobile apps, external EHR imports, dictation services.
+    """
+    from app.modules.workflows.engine import workflow_engine
+
+    result = await db.execute(select(Visit).where(Visit.id == visit_id))
+    visit = result.scalar_one_or_none()
+    if not visit:
+        raise HTTPException(404, "Visit not found")
+
+    if body.raw_note is not None:
+        visit.raw_note = body.raw_note
+    if body.subjective is not None:
+        visit.subjective = body.subjective
+    if body.objective is not None:
+        visit.objective = body.objective
+    if body.assessment is not None:
+        visit.assessment = body.assessment
+    if body.plan is not None:
+        visit.plan = body.plan
+    if body.vital_signs is not None:
+        visit.vital_signs = body.vital_signs
+    if body.clinical_findings is not None:
+        visit.clinical_findings = body.clinical_findings
+    if body.action_items is not None:
+        visit.action_items = body.action_items
+    if body.structured_note is not None:
+        visit.structured_note = body.structured_note
+
+    # Merge SOAP fields into structured_note for consistency
+    if any([body.subjective, body.objective, body.assessment, body.plan]):
+        existing = visit.structured_note or {}
+        if body.subjective:
+            existing["subjective"] = body.subjective
+        if body.objective:
+            existing["objective"] = body.objective
+        if body.assessment:
+            existing["assessment"] = body.assessment
+        if body.plan:
+            existing["plan"] = body.plan
+        visit.structured_note = existing
+
+    visit.ai_processing_status = "completed"
+
+    if body.finalize:
+        visit.status = VisitStatus.completed
+        visit.completed_at = datetime.utcnow()
+        visit.note_finalized = True
+        await workflow_engine.trigger("visit_completed", {
+            "patient_id": str(visit.patient_id),
+            "visit_id": str(visit_id),
+            "visit_type": visit.visit_type,
+        }, db)
+
+    await db.commit()
+    return {
+        "visit_id": str(visit_id),
+        "status": visit.status,
+        "note_finalized": visit.note_finalized,
+        "fields_written": [
+            f for f in ["raw_note", "subjective", "objective", "assessment", "plan",
+                        "vital_signs", "clinical_findings", "action_items", "structured_note"]
+            if getattr(body, f) is not None
+        ],
+    }
 
 
 @router.patch("/{visit_id}", response_model=VisitResponse)
