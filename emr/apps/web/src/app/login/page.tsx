@@ -1,9 +1,21 @@
 "use client";
-import { useState, FormEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
+import { microsoftLogin, isMicrosoftSSOEnabled } from "@/lib/microsoft-auth";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+
+function MicrosoftIcon() {
+  return (
+    <svg viewBox="0 0 21 21" className="w-4 h-4 shrink-0" fill="none">
+      <rect x="1"  y="1"  width="9" height="9" fill="#F25022"/>
+      <rect x="11" y="1"  width="9" height="9" fill="#7FBA00"/>
+      <rect x="1"  y="11" width="9" height="9" fill="#00A4EF"/>
+      <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+    </svg>
+  );
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,6 +23,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [msLoading, setMsLoading] = useState(false);
+  const [ssoEnabled, setSsoEnabled] = useState(false);
+
+  useEffect(() => {
+    setSsoEnabled(isMicrosoftSSOEnabled());
+    // If already logged in, redirect away
+    if (typeof window !== "undefined" && localStorage.getItem("token")) {
+      router.replace("/dashboard");
+    }
+  }, [router]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -29,6 +51,17 @@ export default function LoginPage() {
     }
   }
 
+  async function handleMicrosoftLogin() {
+    setMsLoading(true);
+    setError("");
+    try {
+      await microsoftLogin(); // redirects — execution stops here
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Microsoft sign-in failed");
+      setMsLoading(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
@@ -41,11 +74,35 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Card */}
         <div className="bg-white rounded-2xl shadow-2xl p-8">
           <h1 className="text-xl font-semibold text-slate-900 mb-1">Sign in</h1>
-          <p className="text-sm text-slate-500 mb-6">Enter your work credentials to continue</p>
+          <p className="text-sm text-slate-500 mb-6">Use your work credentials to continue</p>
 
+          {/* Microsoft SSO button */}
+          {ssoEnabled && (
+            <>
+              <button
+                type="button"
+                onClick={handleMicrosoftLogin}
+                disabled={msLoading}
+                className="w-full flex items-center justify-center gap-3 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50 mb-4"
+              >
+                <MicrosoftIcon />
+                {msLoading ? "Redirecting to Microsoft…" : "Sign in with Microsoft"}
+              </button>
+
+              <div className="relative mb-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center">
+                  <span className="bg-white px-3 text-xs text-slate-400">or sign in with password</span>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Email / password form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Email</label>

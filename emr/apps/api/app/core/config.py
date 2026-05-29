@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     # AWS Comprehend Medical — set USE_COMPREHEND=true to enable NLP on ingested docs
     use_comprehend_medical: bool = False
 
+    # Azure AD / Microsoft SSO
+    # Set AZURE_CLIENT_ID and AZURE_TENANT_ID to enable "Sign in with Microsoft"
+    # tenant_id can be your org's tenant UUID (recommended) or "common" for multi-tenant
+    azure_client_id: str = ""
+    azure_tenant_id: str = "common"
+
     # Fax ingestion
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""

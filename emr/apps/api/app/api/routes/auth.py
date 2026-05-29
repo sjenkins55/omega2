@@ -92,6 +92,67 @@ async def portal_login(body: PortalLoginBody, db: AsyncSession = Depends(get_db)
     }
 
 
+# ── Microsoft SSO ─────────────────────────────────────────────────────────────
+
+class MicrosoftSSOBody(BaseModel):
+    id_token: str
+
+
+@router.post("/microsoft")
+async def microsoft_sso(body: MicrosoftSSOBody, db: AsyncSession = Depends(get_db)):
+    """
+    Validate a Microsoft ID token and exchange it for a ConcertoCare JWT.
+    The user must already exist in the EMR (created by an admin).
+    Microsoft just replaces the password — authorization stays in our system.
+    """
+    from app.core.config import get_settings
+    from app.core.microsoft_sso import validate_microsoft_id_token
+
+    cfg = get_settings()
+    if not cfg.azure_client_id:
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                            detail="Microsoft SSO is not configured on this server")
+
+    try:
+        claims = await validate_microsoft_id_token(
+            id_token=body.id_token,
+            client_id=cfg.azure_client_id,
+            tenant_id=cfg.azure_tenant_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+
+    email = (claims.get("email") or claims.get("preferred_username") or "").lower().strip()
+    if not email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Microsoft token did not include an email address")
+
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"No EMR account found for {email}. Contact your administrator to create one.",
+        )
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Your account has been deactivated. Contact your administrator.")
+
+    token = create_access_token(str(user.id), token_type="staff")
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "full_name": f"{user.first_name} {user.last_name}",
+            "role": user.role,
+            "is_active": user.is_active,
+        },
+    }
+
+
 @router.get("/portal/me")
 async def portal_me(patient: Patient = Depends(get_current_patient)):
     return {
