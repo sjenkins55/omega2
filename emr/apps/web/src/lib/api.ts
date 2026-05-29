@@ -13,6 +13,40 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("token");
+      window.location.href = "/login";
+    }
+    return Promise.reject(err);
+  }
+);
+
+// Portal API instance (uses portal_token from localStorage)
+export const portalApi = axios.create({
+  baseURL: BASE_URL,
+  headers: { "Content-Type": "application/json" },
+});
+
+portalApi.interceptors.request.use((config) => {
+  const token = typeof window !== "undefined" ? localStorage.getItem("portal_token") : null;
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+portalApi.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("portal_token");
+      window.location.href = "/portal/login";
+    }
+    return Promise.reject(err);
+  }
+);
+
 // Patients
 export const patientsApi = {
   list: (params?: { status?: string; search?: string; limit?: number; offset?: number }) =>

@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.core.config import get_settings
@@ -29,15 +29,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.models import territory as _territory_models  # ensure table is created
-from app.api.routes import patients, visits, ingestion, workflows, engagement, admin
+# Ensure all models are registered so create_all picks them up
+from app.models import territory as _t  # noqa: F401
+from app.models import portal_message as _pm  # noqa: F401
 
-app.include_router(patients.router, prefix="/api/v1")
-app.include_router(visits.router, prefix="/api/v1")
-app.include_router(ingestion.router, prefix="/api/v1")
-app.include_router(workflows.router, prefix="/api/v1")
-app.include_router(engagement.router, prefix="/api/v1")
-app.include_router(admin.router, prefix="/api/v1")
+from app.core.auth import get_current_user, get_current_patient
+from app.api.routes import patients, visits, ingestion, workflows, engagement, admin, auth, portal
+
+# Auth routes — no JWT required
+app.include_router(auth.router, prefix="/api/v1")
+
+# Staff routes — all require a valid staff JWT
+_staff_auth = [Depends(get_current_user)]
+app.include_router(patients.router,   prefix="/api/v1", dependencies=_staff_auth)
+app.include_router(visits.router,     prefix="/api/v1", dependencies=_staff_auth)
+app.include_router(ingestion.router,  prefix="/api/v1", dependencies=_staff_auth)
+app.include_router(workflows.router,  prefix="/api/v1", dependencies=_staff_auth)
+app.include_router(engagement.router, prefix="/api/v1", dependencies=_staff_auth)
+app.include_router(admin.router,      prefix="/api/v1", dependencies=_staff_auth)
+
+# Patient portal routes — require portal JWT
+app.include_router(portal.router, prefix="/api/v1", dependencies=[Depends(get_current_patient)])
 
 
 @app.get("/health")
