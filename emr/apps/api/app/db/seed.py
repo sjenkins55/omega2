@@ -8,6 +8,7 @@ from app.models.patient import Patient, PatientStatus, InsuranceType
 from app.models.condition import Condition
 from app.models.lab_result import LabResult
 from app.models.user import User, UserRole
+from app.models import visit, document, engagement, territory, portal_message  # noqa: F401 — register all models
 from passlib.context import CryptContext
 
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")

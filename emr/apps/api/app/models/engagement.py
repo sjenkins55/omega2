@@ -54,7 +54,7 @@ class OutreachRecord(Base):
     response_content: Mapped[str | None] = mapped_column(Text)
 
     workflow_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("workflows.id"))
-    metadata: Mapped[dict | None] = mapped_column(JSON)
+    extra_data: Mapped[dict | None] = mapped_column(JSON)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 

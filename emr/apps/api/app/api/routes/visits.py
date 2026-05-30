@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
@@ -11,6 +11,23 @@ from app.models.patient import Patient
 from app.schemas.visit import VisitCreate, VisitUpdate, VisitResponse, NoteSubmission
 
 router = APIRouter(prefix="/visits", tags=["visits"])
+
+
+@router.get("", response_model=list[VisitResponse])
+async def list_visits(
+    patient_id: UUID | None = None,
+    status: VisitStatus | None = None,
+    limit: int = Query(50, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(Visit)
+    if patient_id:
+        query = query.where(Visit.patient_id == patient_id)
+    if status:
+        query = query.where(Visit.status == status)
+    query = query.order_by(Visit.scheduled_at.desc().nullslast()).limit(limit)
+    result = await db.execute(query)
+    return result.scalars().all()
 
 
 @router.get("/{visit_id}", response_model=VisitResponse)
