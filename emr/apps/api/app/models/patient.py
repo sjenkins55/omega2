@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from sqlalchemy import String, Date, DateTime, Text, JSON, ForeignKey, Enum as SAEnum
+from sqlalchemy import String, Date, DateTime, JSON, ForeignKey, Enum as SAEnum, Boolean, Float, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
@@ -23,6 +23,12 @@ class InsuranceType(str, enum.Enum):
 
 class Patient(Base):
     __tablename__ = "patients"
+    __table_args__ = (
+        Index("ix_patients_assigned_provider", "assigned_provider_id"),
+        Index("ix_patients_status", "status"),
+        Index("ix_patients_soc_date", "soc_date"),
+        Index("ix_patients_risk_score", "ai_risk_score"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     mrn: Mapped[str] = mapped_column(String(50), unique=True, index=True)
@@ -47,6 +53,43 @@ class Patient(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Demographics
+    preferred_name: Mapped[str | None] = mapped_column(String(100))
+    preferred_language: Mapped[str | None] = mapped_column(String(10))
+    preferred_contact_method: Mapped[str | None] = mapped_column(String(20))
+    emergency_contact: Mapped[dict | None] = mapped_column(JSON)
+
+    # Clinician assignment
+    assigned_provider_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+    # Home care episode
+    soc_date: Mapped[date | None] = mapped_column(Date)
+    certification_from: Mapped[date | None] = mapped_column(Date)
+    certification_through: Mapped[date | None] = mapped_column(Date)
+    referral_source: Mapped[str | None] = mapped_column(String(255))
+    referring_physician_name: Mapped[str | None] = mapped_column(String(200))
+    referring_physician_npi: Mapped[str | None] = mapped_column(String(10))
+    discharge_date: Mapped[date | None] = mapped_column(Date)
+    discharge_reason: Mapped[str | None] = mapped_column(String(255))
+
+    # Clinical context
+    code_status: Mapped[str | None] = mapped_column(String(30))
+    living_situation: Mapped[str | None] = mapped_column(String(30))
+    caregiver_name: Mapped[str | None] = mapped_column(String(200))
+    caregiver_phone: Mapped[str | None] = mapped_column(String(20))
+    baseline_weight_lbs: Mapped[float | None] = mapped_column(Float)
+    functional_limitations: Mapped[dict | None] = mapped_column(JSON)
+    advance_directives_on_file: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Insurance
+    insurance_plan_name: Mapped[str | None] = mapped_column(String(200))
+    insurance_group_number: Mapped[str | None] = mapped_column(String(100))
+    secondary_insurance_type: Mapped[InsuranceType | None] = mapped_column(SAEnum(InsuranceType))
+    secondary_insurance_id: Mapped[str | None] = mapped_column(String(100))
+
     visits: Mapped[list["Visit"]] = relationship("Visit", back_populates="patient")
     documents: Mapped[list["Document"]] = relationship("Document", back_populates="patient")
     outreach_records: Mapped[list["OutreachRecord"]] = relationship("OutreachRecord", back_populates="patient")
+    assigned_provider: Mapped["User | None"] = relationship("User", foreign_keys=[assigned_provider_id])
+    conditions: Mapped[list["Condition"]] = relationship("Condition", back_populates="patient")
+    lab_results: Mapped[list["LabResult"]] = relationship("LabResult", back_populates="patient")

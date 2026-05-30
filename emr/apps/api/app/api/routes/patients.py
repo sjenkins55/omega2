@@ -13,6 +13,8 @@ router = APIRouter(prefix="/patients", tags=["patients"])
 async def list_patients(
     status: PatientStatus | None = None,
     search: str | None = None,
+    assigned_provider_id: UUID | None = None,
+    high_risk: bool | None = None,
     limit: int = Query(50, le=200),
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -27,6 +29,12 @@ async def list_patients(
             | Patient.last_name.ilike(term)
             | Patient.mrn.ilike(term)
         )
+    if assigned_provider_id:
+        query = query.where(Patient.assigned_provider_id == assigned_provider_id)
+    if high_risk is True:
+        query = query.where(Patient.ai_risk_score >= 0.7)
+    elif high_risk is False:
+        query = query.where((Patient.ai_risk_score < 0.7) | (Patient.ai_risk_score.is_(None)))
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
     result = await db.execute(query.offset(offset).limit(limit).order_by(Patient.last_name))
