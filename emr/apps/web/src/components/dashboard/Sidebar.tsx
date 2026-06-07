@@ -7,7 +7,7 @@ import {
   FileText, Zap, MessageSquare, Activity, Settings,
   MapPin, ShieldCheck, CheckSquare, Bell, HeartPulse,
   ClipboardCheck, Stethoscope, FileBarChart2, BookOpen,
-  Hospital, BadgeCheck,
+  Hospital, BadgeCheck, Building2,
 } from "lucide-react";
 
 const NAV = [
@@ -34,9 +34,10 @@ const CLINICAL_NAV = [
 ];
 
 const ADMIN_NAV = [
-  { href: "/admin/territories", icon: MapPin,      label: "Territories" },
-  { href: "/admin/users",       icon: ShieldCheck, label: "Users & Access" },
-  { href: "/admin/audit",       icon: Bell,        label: "Audit Log" },
+  { href: "/admin/territories",   icon: MapPin,      label: "Territories" },
+  { href: "/admin/users",         icon: ShieldCheck, label: "Users & Access" },
+  { href: "/admin/audit",         icon: Bell,        label: "Audit Log" },
+  { href: "/admin/organizations", icon: Building2,   label: "Organizations" },
 ];
 
 function NavGroup({ items }: { items: typeof NAV }) {

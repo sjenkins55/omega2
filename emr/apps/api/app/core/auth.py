@@ -1,7 +1,7 @@
 """
 JWT authentication for staff and patient portal.
 
-Staff tokens:    sub = user_id (str UUID), type = "staff"
+Staff tokens:    sub = user_id (str UUID), type = "staff", org = org_id
 Portal tokens:   sub = patient_id (str UUID), type = "portal"
 """
 from __future__ import annotations
@@ -26,15 +26,15 @@ def create_access_token(
     subject: str,
     token_type: Literal["staff", "portal"] = "staff",
     expires_minutes: int | None = None,
+    org_id: str | None = None,
 ) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=expires_minutes or settings.access_token_expire_minutes
     )
-    return jwt.encode(
-        {"sub": subject, "type": token_type, "exp": expire},
-        settings.secret_key,
-        algorithm="HS256",
-    )
+    payload: dict = {"sub": subject, "type": token_type, "exp": expire}
+    if org_id:
+        payload["org"] = org_id
+    return jwt.encode(payload, settings.secret_key, algorithm="HS256")
 
 
 def _decode(token: str) -> dict:
@@ -48,7 +48,7 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
 ):
-    """Dependency for staff-facing routes."""
+    """Dependency for staff-facing routes. Returns the authenticated User."""
     from app.models.user import User
 
     if not credentials:
@@ -82,3 +82,19 @@ async def get_current_patient(
     if not patient:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Patient not found")
     return patient
+
+
+def require_admin(current_user=Depends(get_current_user)):
+    """Route dependency — requires admin or super_admin role."""
+    from app.models.user import UserRole
+    if current_user.role not in (UserRole.admin, UserRole.super_admin):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return current_user
+
+
+def require_super_admin(current_user=Depends(get_current_user)):
+    """Route dependency — requires super_admin role (cross-org platform operations)."""
+    from app.models.user import UserRole
+    if current_user.role != UserRole.super_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super-admin access required")
+    return current_user

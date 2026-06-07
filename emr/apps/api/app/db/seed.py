@@ -1,5 +1,6 @@
 """Seed the database with starter workflows and a demo patient."""
 import asyncio
+import secrets
 import uuid
 from datetime import date, datetime, timezone
 from app.db.base import AsyncSessionLocal, engine, Base
@@ -8,6 +9,7 @@ from app.models.patient import Patient, PatientStatus, InsuranceType
 from app.models.condition import Condition
 from app.models.lab_result import LabResult
 from app.models.user import User, UserRole
+from app.models.organization import Organization, PlanTier
 from app.models import visit, document, engagement, territory, portal_message  # noqa: F401 — register all models
 from passlib.context import CryptContext
 
@@ -65,18 +67,39 @@ async def seed():
         await conn.run_sync(Base.metadata.create_all)
 
     async with AsyncSessionLocal() as db:
-        # Create admin user
         from sqlalchemy import select
+
+        # Create or retrieve the demo organization
+        existing_org = await db.execute(select(Organization).where(Organization.slug == "concertocare-demo"))
+        org = existing_org.scalar_one_or_none()
+        if not org:
+            org = Organization(
+                name="ConcertoCare Demo",
+                slug="concertocare-demo",
+                plan_tier=PlanTier.professional,
+            )
+            db.add(org)
+            await db.flush()
+
+        # Create admin user with a secure random password (shown once on first run)
         existing_user = await db.execute(select(User).where(User.email == "admin@concertocare.com"))
         if not existing_user.scalar_one_or_none():
+            admin_password = secrets.token_urlsafe(16)
             admin = User(
                 email="admin@concertocare.com",
-                hashed_password=pwd_ctx.hash("admin123"),
+                hashed_password=pwd_ctx.hash(admin_password),
                 first_name="Admin",
                 last_name="User",
                 role=UserRole.admin,
+                organization_id=org.id,
             )
             db.add(admin)
+            print(f"\n{'='*60}")
+            print(f"  ADMIN ACCOUNT CREATED")
+            print(f"  Email:    admin@concertocare.com")
+            print(f"  Password: {admin_password}")
+            print(f"  Save this password — it will not be shown again.")
+            print(f"{'='*60}\n")
 
         # Seed system workflows
         for wf_data in SYSTEM_WORKFLOWS:

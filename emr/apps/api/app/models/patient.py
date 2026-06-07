@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from sqlalchemy import String, Date, DateTime, JSON, ForeignKey, Enum as SAEnum, Boolean, Float, Index
+from sqlalchemy import String, Date, DateTime, JSON, ForeignKey, Enum as SAEnum, Boolean, Float, Index, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
@@ -28,6 +28,7 @@ class Patient(Base):
         Index("ix_patients_status", "status"),
         Index("ix_patients_soc_date", "soc_date"),
         Index("ix_patients_risk_score", "ai_risk_score"),
+        Index("ix_patients_org", "organization_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -58,6 +59,9 @@ class Patient(Base):
     preferred_language: Mapped[str | None] = mapped_column(String(10))
     preferred_contact_method: Mapped[str | None] = mapped_column(String(20))
     emergency_contact: Mapped[dict | None] = mapped_column(JSON)
+
+    # Multi-tenancy
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=True)
 
     # Clinician assignment
     assigned_provider_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -91,5 +95,6 @@ class Patient(Base):
     documents: Mapped[list["Document"]] = relationship("Document", back_populates="patient")
     outreach_records: Mapped[list["OutreachRecord"]] = relationship("OutreachRecord", back_populates="patient")
     assigned_provider: Mapped["User | None"] = relationship("User", foreign_keys=[assigned_provider_id])
+    organization: Mapped["Organization | None"] = relationship("Organization", back_populates="patients")
     conditions: Mapped[list["Condition"]] = relationship("Condition", back_populates="patient")
     lab_results: Mapped[list["LabResult"]] = relationship("LabResult", back_populates="patient")

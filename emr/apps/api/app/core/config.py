@@ -1,18 +1,30 @@
+import secrets
+import logging
 from pydantic_settings import BaseSettings
+from pydantic import model_validator
 from functools import lru_cache
+
+logger = logging.getLogger(__name__)
+
+_INSECURE_KEY = "change-me-in-production"
 
 
 class Settings(BaseSettings):
     app_name: str = "ConcertoCare EMR"
     app_version: str = "0.1.0"
     debug: bool = False
+    environment: str = "development"  # "development" | "staging" | "production"
 
     database_url: str = "postgresql+asyncpg://emr:emr@localhost:5432/emr"
     redis_url: str = "redis://localhost:6379/0"
 
-    secret_key: str = "change-me-in-production"
+    secret_key: str = _INSECURE_KEY
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
+    portal_token_expire_minutes: int = 60 * 24  # 24 hours (was 7 days)
+
+    # ADT inbound API key — hospitals must pass X-ADT-Key header
+    adt_api_key: str = ""
 
     # AI — set AI_PROVIDER=bedrock to route through AWS Bedrock instead of direct Anthropic
     ai_provider: str = "anthropic"  # "anthropic" | "bedrock"
@@ -23,28 +35,23 @@ class Settings(BaseSettings):
     # Bedrock model IDs (cross-region inference profiles recommended)
     bedrock_model_id: str = "us.anthropic.claude-sonnet-4-5-20251001-v1:0"
     bedrock_model_id_opus: str = "us.anthropic.claude-3-opus-20240229-v1:0"
-    bedrock_guardrails_id: str = ""   # optional — Bedrock Guardrail for PII redaction
+    bedrock_guardrails_id: str = ""
     bedrock_guardrails_version: str = "DRAFT"
 
     # AWS — shared by S3, HealthLake, Bedrock, Comprehend Medical
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
-    aws_session_token: str = ""       # for assumed-role / SSO
+    aws_session_token: str = ""
     aws_region: str = "us-east-1"
 
-    # S3 for document storage
     s3_bucket: str = "concertocare-emr-docs"
 
-    # AWS HealthLake — set HEALTHLAKE_DATASTORE_ID to enable real FHIR store
     healthlake_datastore_id: str = ""
-    healthlake_endpoint: str = ""     # auto-built from region if blank
+    healthlake_endpoint: str = ""
 
-    # AWS Comprehend Medical — set USE_COMPREHEND=true to enable NLP on ingested docs
     use_comprehend_medical: bool = False
 
     # Azure AD / Microsoft SSO
-    # Set AZURE_CLIENT_ID and AZURE_TENANT_ID to enable "Sign in with Microsoft"
-    # tenant_id can be your org's tenant UUID (recommended) or "common" for multi-tenant
     azure_client_id: str = ""
     azure_tenant_id: str = "common"
 
@@ -54,6 +61,21 @@ class Settings(BaseSettings):
     fax_inbox_number: str = ""
 
     cors_origins: list[str] = ["http://localhost:3000"]
+
+    @model_validator(mode="after")
+    def check_secret_key(self) -> "Settings":
+        if self.secret_key == _INSECURE_KEY:
+            if self.environment == "production":
+                raise ValueError(
+                    "SECRET_KEY must be set to a secure random value in production. "
+                    "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+                )
+            logger.warning(
+                "SECURITY WARNING: Using default SECRET_KEY. "
+                "Set SECRET_KEY env var before going to production. "
+                "Generate: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        return self
 
     class Config:
         env_file = ".env"

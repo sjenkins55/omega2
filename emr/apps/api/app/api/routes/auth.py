@@ -38,7 +38,11 @@ async def staff_login(body: StaffLoginBody, db: AsyncSession = Depends(get_db)):
     if not user or not user.is_active or not _pwd.verify(body.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    token = create_access_token(str(user.id), token_type="staff")
+    token = create_access_token(
+        str(user.id),
+        token_type="staff",
+        org_id=str(user.organization_id) if user.organization_id else None,
+    )
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -47,6 +51,7 @@ async def staff_login(body: StaffLoginBody, db: AsyncSession = Depends(get_db)):
             "email": user.email,
             "full_name": f"{user.first_name} {user.last_name}",
             "role": user.role,
+            "organization_id": str(user.organization_id) if user.organization_id else None,
             "is_active": user.is_active,
         },
     }
@@ -79,17 +84,15 @@ async def portal_login(body: PortalLoginBody, db: AsyncSession = Depends(get_db)
     if not patient or patient.date_of_birth != body.date_of_birth:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MRN or date of birth not found")
 
-    token = create_access_token(str(patient.id), token_type="portal", expires_minutes=60 * 24 * 7)
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "patient": {
-            "id": str(patient.id),
-            "mrn": patient.mrn,
-            "name": f"{patient.first_name} {patient.last_name}",
-            "date_of_birth": patient.date_of_birth.isoformat(),
-        },
-    }
+    from app.core.config import get_settings
+    cfg = get_settings()
+    token = create_access_token(
+        str(patient.id),
+        token_type="portal",
+        expires_minutes=cfg.portal_token_expire_minutes,
+    )
+    # Return only the token — no PHI in the login response body
+    return {"access_token": token, "token_type": "bearer"}
 
 
 # ── Microsoft SSO ─────────────────────────────────────────────────────────────
@@ -139,7 +142,11 @@ async def microsoft_sso(body: MicrosoftSSOBody, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Your account has been deactivated. Contact your administrator.")
 
-    token = create_access_token(str(user.id), token_type="staff")
+    token = create_access_token(
+        str(user.id),
+        token_type="staff",
+        org_id=str(user.organization_id) if user.organization_id else None,
+    )
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -148,6 +155,7 @@ async def microsoft_sso(body: MicrosoftSSOBody, db: AsyncSession = Depends(get_d
             "email": user.email,
             "full_name": f"{user.first_name} {user.last_name}",
             "role": user.role,
+            "organization_id": str(user.organization_id) if user.organization_id else None,
             "is_active": user.is_active,
         },
     }

@@ -1,9 +1,12 @@
 """
-Admin routes — user management and provider territory assignment.
-All endpoints are /api/v1/admin/...
+Admin routes — user management, territory assignment, and organization provisioning.
+All /admin/users and /admin/territories endpoints require admin or super_admin role.
+/admin/organizations endpoints require super_admin role.
 """
 from __future__ import annotations
+import re
 import uuid
+import secrets
 from datetime import datetime
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,9 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import bcrypt
 
 from app.db.base import get_db
+from app.core.auth import get_current_user, require_admin, require_super_admin
 from app.models.user import User, UserRole
 from app.models.patient import Patient
 from app.models.territory import ProviderTerritory
+from app.models.organization import Organization, PlanTier
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -43,18 +48,129 @@ class TerritoryAssignment(BaseModel):
     provider_id: str | None  # None = unassign
 
 class BulkTerritoryAssignment(BaseModel):
-    assignments: list[dict]  # [{zip_code, provider_id}]
+    assignments: list[dict]
+
+class OrgCreate(BaseModel):
+    name: str
+    slug: str
+    plan_tier: PlanTier = PlanTier.starter
+    max_users: int | None = None
+    max_patients: int | None = None
+
+class OrgAdminCreate(BaseModel):
+    email: EmailStr
+    first_name: str
+    last_name: str
+    password: str | None = None  # auto-generated if omitted
 
 
-# ── User management ───────────────────────────────────────────────────────────
+# ── Organization management (super_admin only) ────────────────────────────────
+
+@router.get("/organizations")
+async def list_organizations(
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    result = await db.execute(select(Organization).order_by(Organization.created_at.desc()))
+    orgs = result.scalars().all()
+    return {"organizations": [_org_dict(o) for o in orgs], "count": len(orgs)}
+
+
+@router.post("/organizations", status_code=201)
+async def create_organization(
+    body: OrgCreate,
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    slug = re.sub(r"[^a-z0-9-]", "-", body.slug.lower().strip())
+    existing = await db.execute(select(Organization).where(Organization.slug == slug))
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, f"Slug '{slug}' is already in use")
+
+    org = Organization(
+        name=body.name,
+        slug=slug,
+        plan_tier=body.plan_tier,
+        max_users=body.max_users,
+        max_patients=body.max_patients,
+    )
+    db.add(org)
+    await db.flush()
+    await db.refresh(org)
+    return _org_dict(org)
+
+
+@router.post("/organizations/{org_id}/provision-admin", status_code=201)
+async def provision_org_admin(
+    org_id: uuid.UUID,
+    body: OrgAdminCreate,
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Create the first admin user for a newly provisioned organization."""
+    result = await db.execute(select(Organization).where(Organization.id == org_id))
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(404, "Organization not found")
+    if not org.is_active:
+        raise HTTPException(400, "Organization is inactive")
+
+    existing = await db.execute(select(User).where(User.email == body.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, "Email already in use")
+
+    password = body.password or secrets.token_urlsafe(16)
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    user = User(
+        email=body.email,
+        hashed_password=hashed,
+        first_name=body.first_name,
+        last_name=body.last_name,
+        role=UserRole.admin,
+        organization_id=org_id,
+    )
+    db.add(user)
+    await db.flush()
+    await db.refresh(user)
+
+    result_dict = _user_dict(user)
+    if not body.password:
+        result_dict["generated_password"] = password  # shown once — store securely
+    return result_dict
+
+
+@router.patch("/organizations/{org_id}")
+async def update_organization(
+    org_id: uuid.UUID,
+    body: dict,
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    result = await db.execute(select(Organization).where(Organization.id == org_id))
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(404, "Organization not found")
+    for field in ("name", "plan_tier", "is_active", "max_users", "max_patients", "settings"):
+        if field in body:
+            setattr(org, field, body[field])
+    await db.flush()
+    await db.refresh(org)
+    return _org_dict(org)
+
+
+# ── User management (admin or super_admin) ────────────────────────────────────
 
 @router.get("/users")
 async def list_users(
     role: UserRole | None = None,
     is_active: bool | None = None,
+    current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     q = select(User)
+    # super_admins see all users; org admins see only their org
+    if current_user.role != UserRole.super_admin and current_user.organization_id:
+        q = q.where(User.organization_id == current_user.organization_id)
     if role:
         q = q.where(User.role == role)
     if is_active is not None:
@@ -62,14 +178,19 @@ async def list_users(
     q = q.order_by(User.last_name, User.first_name)
     result = await db.execute(q)
     users = result.scalars().all()
-    return {
-        "users": [_user_dict(u) for u in users],
-        "count": len(users),
-    }
+    return {"users": [_user_dict(u) for u in users], "count": len(users)}
 
 
 @router.post("/users", status_code=201)
-async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)) -> dict:
+async def create_user(
+    body: UserCreate,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    # Prevent org admins from creating super_admins
+    if body.role == UserRole.super_admin and current_user.role != UserRole.super_admin:
+        raise HTTPException(403, "Only super admins can create super_admin accounts")
+
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
         raise HTTPException(400, "Email already in use")
@@ -82,6 +203,7 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)) -> d
         last_name=body.last_name,
         role=body.role,
         npi=body.npi,
+        organization_id=current_user.organization_id,
     )
     db.add(user)
     await db.commit()
@@ -93,12 +215,21 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)) -> d
 async def update_user(
     user_id: uuid.UUID,
     body: UserUpdate,
+    current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(404, "User not found")
+
+    # Org admins can only manage users in their own org
+    if current_user.role != UserRole.super_admin:
+        if user.organization_id != current_user.organization_id:
+            raise HTTPException(403, "Cannot manage users outside your organization")
+        # Prevent self-promotion to super_admin or admin-via-role-change
+        if body.role == UserRole.super_admin:
+            raise HTTPException(403, "Only super admins can grant super_admin role")
 
     if body.first_name is not None:
         user.first_name = body.first_name
@@ -119,21 +250,28 @@ async def update_user(
 
 
 @router.delete("/users/{user_id}", status_code=204)
-async def deactivate_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def deactivate_user(
+    user_id: uuid.UUID,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(404, "User not found")
+    if current_user.role != UserRole.super_admin and user.organization_id != current_user.organization_id:
+        raise HTTPException(403, "Cannot deactivate users outside your organization")
     user.is_active = False
     await db.commit()
 
 
-# ── Territory management ──────────────────────────────────────────────────────
+# ── Territory management (admin or super_admin) ───────────────────────────────
 
 @router.get("/territories")
-async def list_territories(db: AsyncSession = Depends(get_db)) -> dict:
-    """All zip codes that have at least one patient, with provider assignment and patient count."""
-    # Count patients per zip code
+async def list_territories(
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     zip_counts_q = (
         select(
             func.json_extract_path_text(Patient.address.cast(type_=None), "zip").label("zip"),
@@ -145,13 +283,11 @@ async def list_territories(db: AsyncSession = Depends(get_db)) -> dict:
     counts_result = await db.execute(zip_counts_q)
     zip_counts = {row.zip: row.patient_count for row in counts_result if row.zip}
 
-    # Existing territory assignments
     territories_result = await db.execute(
         select(ProviderTerritory).order_by(ProviderTerritory.zip_code)
     )
     territories = {t.zip_code: t for t in territories_result.scalars().all()}
 
-    # All zip codes = union of patients' zips and territory assignments
     all_zips = sorted(set(zip_counts.keys()) | set(territories.keys()))
 
     items = []
@@ -169,7 +305,6 @@ async def list_territories(db: AsyncSession = Depends(get_db)) -> dict:
             "territory_id": str(t.id) if t else None,
         })
 
-    # All providers (for assignment dropdown)
     providers_result = await db.execute(
         select(User).where(User.is_active == True).order_by(User.last_name)
     )
@@ -179,8 +314,11 @@ async def list_territories(db: AsyncSession = Depends(get_db)) -> dict:
 
 
 @router.get("/territories/{zip_code}/patients")
-async def patients_by_zip(zip_code: str, db: AsyncSession = Depends(get_db)) -> dict:
-    """Return all patients whose address.zip matches."""
+async def patients_by_zip(
+    zip_code: str,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     result = await db.execute(
         select(Patient).where(
             func.json_extract_path_text(Patient.address.cast(type_=None), "zip") == zip_code
@@ -206,8 +344,11 @@ async def patients_by_zip(zip_code: str, db: AsyncSession = Depends(get_db)) -> 
 
 
 @router.patch("/territories/assign")
-async def assign_territories(body: TerritoryAssignment, db: AsyncSession = Depends(get_db)) -> dict:
-    """Assign (or unassign) a batch of zip codes to a provider."""
+async def assign_territories(
+    body: TerritoryAssignment,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     provider_id = uuid.UUID(body.provider_id) if body.provider_id else None
 
     if provider_id:
@@ -234,8 +375,10 @@ async def assign_territories(body: TerritoryAssignment, db: AsyncSession = Depen
 
 
 @router.get("/territories/summary")
-async def territory_summary(db: AsyncSession = Depends(get_db)) -> dict:
-    """Provider-centric summary: each provider and their zip codes + patient counts."""
+async def territory_summary(
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     territories_result = await db.execute(select(ProviderTerritory))
     territories = territories_result.scalars().all()
 
@@ -271,10 +414,7 @@ async def territory_summary(db: AsyncSession = Depends(get_db)) -> dict:
         by_provider[pid]["zip_codes"].append({"zip_code": t.zip_code, "patient_count": cnt})
         by_provider[pid]["total_patients"] += cnt
 
-    return {
-        "providers": list(by_provider.values()),
-        "unassigned": unassigned_zips,
-    }
+    return {"providers": list(by_provider.values()), "unassigned": unassigned_zips}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -289,5 +429,20 @@ def _user_dict(u: User) -> dict:
         "role": u.role,
         "npi": u.npi,
         "is_active": u.is_active,
+        "organization_id": str(u.organization_id) if u.organization_id else None,
         "created_at": u.created_at.isoformat() if u.created_at else None,
+    }
+
+
+def _org_dict(o: Organization) -> dict:
+    return {
+        "id": str(o.id),
+        "name": o.name,
+        "slug": o.slug,
+        "plan_tier": o.plan_tier,
+        "is_active": o.is_active,
+        "max_users": o.max_users,
+        "max_patients": o.max_patients,
+        "settings": o.settings,
+        "created_at": o.created_at.isoformat() if o.created_at else None,
     }

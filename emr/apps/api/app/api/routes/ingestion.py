@@ -1,12 +1,28 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
-import io
 from app.db.base import get_db
 from app.models.document import Document, DocumentStatus
 
 router = APIRouter(prefix="/ingestion", tags=["ingestion"])
+
+ALLOWED_UPLOAD_TYPES = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/tiff",
+    "image/webp",
+    "text/plain",
+}
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+_SAFE_NAME_RE = re.compile(r"[^\w.\-]")
+
+
+def _safe_filename(name: str) -> str:
+    base = (name or "document").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    return _SAFE_NAME_RE.sub("_", base)[:255] or "document"
 
 
 @router.post("/fax/webhook")
@@ -18,9 +34,7 @@ async def receive_fax_webhook(
     num_pages: int = Form(1),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Twilio Fax webhook — creates a Document record and queues processing.
-    """
+    """Twilio Fax webhook — creates a Document record and queues processing."""
     doc = Document(
         doc_type="fax",
         status=DocumentStatus.received,
@@ -35,7 +49,6 @@ async def receive_fax_webhook(
     await db.flush()
     await db.refresh(doc)
 
-    # Queue background processing
     from app.modules.ingestion.tasks import process_document_task
     process_document_task.delay(str(doc.id), media_url)
 
@@ -49,12 +62,19 @@ async def upload_document(
     db: AsyncSession = Depends(get_db),
 ):
     """Manual document upload — staff can upload PDFs, images, etc."""
+    if file.content_type not in ALLOWED_UPLOAD_TYPES:
+        raise HTTPException(415, f"Unsupported file type. Allowed: {', '.join(sorted(ALLOWED_UPLOAD_TYPES))}")
+
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(413, f"File too large. Maximum size is {MAX_UPLOAD_SIZE // (1024*1024)} MB")
+
     import boto3
     from app.core.config import get_settings
     settings = get_settings()
 
-    content = await file.read()
-    s3_key = f"uploads/{file.filename}"
+    safe_name = _safe_filename(file.filename or "document")
+    s3_key = f"uploads/{safe_name}"
 
     s3 = boto3.client(
         "s3",
@@ -69,7 +89,7 @@ async def upload_document(
         doc_type="other",
         status=DocumentStatus.received,
         source="manual_upload",
-        file_name=file.filename,
+        file_name=safe_name,
         s3_key=s3_key,
         mime_type=file.content_type or "application/octet-stream",
     )

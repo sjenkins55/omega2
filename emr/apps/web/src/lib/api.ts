@@ -217,9 +217,19 @@ export const ingestionApi = {
     api.post("/ingestion/upload", formData, { headers: { "Content-Type": "multipart/form-data" } }),
 };
 
+// Organizations (super_admin provisioning)
+export const organizationsApi = {
+  list: () => api.get("/admin/organizations"),
+  create: (data: { name: string; slug: string; plan_tier?: string; max_users?: number; max_patients?: number }) =>
+    api.post("/admin/organizations", data),
+  update: (id: string, data: Record<string, unknown>) => api.patch(`/admin/organizations/${id}`, data),
+  provisionAdmin: (orgId: string, data: { email: string; first_name: string; last_name: string; password?: string }) =>
+    api.post(`/admin/organizations/${orgId}/provision-admin`, data),
+};
+
 // Engagement
 export const engagementApi = {
-  list: (params?: { patient_id?: string; status?: string }) =>
+  list: (params?: { patient_id?: string; status?: string; limit?: number }) =>
     api.get("/engagement/outreach", { params }),
   composeMessage: (params: { patient_id: string; outreach_type: string; channel: string }) =>
     api.post("/engagement/outreach/compose", null, { params }),
