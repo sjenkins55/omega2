@@ -34,6 +34,7 @@ class UserCreate(BaseModel):
     last_name: str
     role: UserRole
     npi: str | None = None
+    licensed_states: list[str] = []  # e.g. ["CA", "TX"]
 
 class UserUpdate(BaseModel):
     first_name: str | None = None
@@ -42,6 +43,7 @@ class UserUpdate(BaseModel):
     npi: str | None = None
     is_active: bool | None = None
     password: str | None = None
+    licensed_states: list[str] | None = None
 
 class TerritoryAssignment(BaseModel):
     zip_codes: list[str]
@@ -203,6 +205,7 @@ async def create_user(
         last_name=body.last_name,
         role=body.role,
         npi=body.npi,
+        licensed_states=body.licensed_states,
         organization_id=current_user.organization_id,
     )
     db.add(user)
@@ -241,6 +244,8 @@ async def update_user(
         user.npi = body.npi
     if body.is_active is not None:
         user.is_active = body.is_active
+    if body.licensed_states is not None:
+        user.licensed_states = body.licensed_states
     if body.password:
         user.hashed_password = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
 
@@ -430,6 +435,7 @@ def _user_dict(u: User) -> dict:
         "npi": u.npi,
         "is_active": u.is_active,
         "organization_id": str(u.organization_id) if u.organization_id else None,
+        "licensed_states": u.licensed_states or [],
         "created_at": u.created_at.isoformat() if u.created_at else None,
     }
 

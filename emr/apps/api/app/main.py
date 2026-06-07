@@ -59,7 +59,7 @@ from app.api.routes import (
     patients, visits, ingestion, workflows, engagement, admin, auth, portal,
     conditions, lab_results, tasks, notifications, care_plans, orders, oasis,
     plan_of_care, reports, audit, visit_photos, eligibility, adt, fhir,
-    vitals, discharge,
+    vitals, discharge, chat,
 )
 
 
@@ -108,6 +108,7 @@ app.include_router(visit_photos.router,  prefix="/api/v1", dependencies=_staff_a
 app.include_router(eligibility.router,   prefix="/api/v1", dependencies=_staff_auth)
 app.include_router(vitals.router,        prefix="/api/v1", dependencies=_staff_auth)
 app.include_router(discharge.router,     prefix="/api/v1", dependencies=_staff_auth)
+app.include_router(chat.router,          prefix="/api/v1", dependencies=_staff_auth)
 # FHIR R4 — 21st Century Cures mandates patient access; staff JWT required here,
 # production should add SMART on FHIR / dedicated FHIR auth layer
 app.include_router(fhir.router,          prefix="/api/v1", dependencies=_staff_auth)

@@ -2,6 +2,7 @@
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
+import { ChatSidebar } from "@/components/ChatSidebar";
 
 const BARE_ROUTES = ["/login", "/portal"];
 
@@ -19,6 +20,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <TopBar />
         <main className="flex-1 overflow-auto p-6">{children}</main>
       </div>
+      {/* AI chat available on all staff pages — state-scoped per HIPAA minimum necessary */}
+      <ChatSidebar />
     </div>
   );
 }

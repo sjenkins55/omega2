@@ -217,6 +217,22 @@ export const ingestionApi = {
     api.post("/ingestion/upload", formData, { headers: { "Content-Type": "multipart/form-data" } }),
 };
 
+// AI Chat (HIPAA minimum necessary — state-scoped)
+export const chatApi = {
+  // Returns a streaming fetch Response — use ReadableStream for SSE
+  stream: (message: string, history: { role: string; content: string }[]) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    return fetch(`${BASE_URL}/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ message, history }),
+    });
+  },
+};
+
 // Organizations (super_admin provisioning)
 export const organizationsApi = {
   list: () => api.get("/admin/organizations"),

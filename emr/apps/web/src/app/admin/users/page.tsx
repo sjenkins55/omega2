@@ -44,6 +44,7 @@ type User = {
   role: Role;
   npi: string | null;
   is_active: boolean;
+  licensed_states: string[];
   created_at: string | null;
 };
 
@@ -54,12 +55,20 @@ type FormData = {
   last_name: string;
   role: Role;
   npi: string;
+  licensed_states: string[];
 };
 
 const EMPTY_FORM: FormData = {
   email: "", password: "", first_name: "", last_name: "",
-  role: "nurse", npi: "",
+  role: "nurse", npi: "", licensed_states: [],
 };
+
+const US_STATES = [
+  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+  "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+  "VA","WA","WV","WI","WY","DC",
+];
 
 export default function UsersAdminPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -99,7 +108,7 @@ export default function UsersAdminPage() {
   }
 
   function openEdit(u: User) {
-    setForm({ email: u.email, password: "", first_name: u.first_name, last_name: u.last_name, role: u.role, npi: u.npi ?? "" });
+    setForm({ email: u.email, password: "", first_name: u.first_name, last_name: u.last_name, role: u.role, npi: u.npi ?? "", licensed_states: u.licensed_states ?? [] });
     setFormError("");
     setEditUser(u);
     setShowCreate(true);
@@ -109,9 +118,10 @@ export default function UsersAdminPage() {
     setSaving(true);
     setFormError("");
     try {
-      const body: Record<string, string> = {
+      const body: Record<string, unknown> = {
         email: form.email, first_name: form.first_name,
         last_name: form.last_name, role: form.role, npi: form.npi,
+        licensed_states: form.licensed_states,
       };
       if (form.password) body.password = form.password;
 
@@ -280,6 +290,17 @@ export default function UsersAdminPage() {
                   </td>
                   <td className="px-5 py-3 text-slate-500 font-mono text-xs">{u.npi ?? "—"}</td>
                   <td className="px-5 py-3">
+                    {(u.licensed_states ?? []).length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {u.licensed_states.map(s => (
+                          <span key={s} className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded font-mono font-semibold">{s}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-red-400 italic">None set</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3">
                     <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full font-medium ${
                       u.is_active ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"
                     }`}>
@@ -358,6 +379,33 @@ export default function UsersAdminPage() {
               </Field>
               <Field label="NPI (optional)">
                 <input className={INPUT} value={form.npi} onChange={e => setForm(f => ({ ...f, npi: e.target.value }))} placeholder="1234567890" />
+              </Field>
+              <Field label="Licensed States (HIPAA minimum necessary scope)">
+                <div className="border border-slate-200 rounded-lg p-2 max-h-32 overflow-y-auto flex flex-wrap gap-1.5">
+                  {US_STATES.map(s => {
+                    const active = form.licensed_states.includes(s);
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setForm(f => ({
+                          ...f,
+                          licensed_states: active
+                            ? f.licensed_states.filter(x => x !== s)
+                            : [...f.licensed_states, s],
+                        }))}
+                        className={`text-[11px] px-2 py-0.5 rounded font-mono font-semibold border transition-colors ${
+                          active
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "bg-white text-slate-500 border-slate-200 hover:border-blue-300"
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">AI chat will only show patients in these states. Leave empty for admin/billing roles (org-wide access).</p>
               </Field>
               {formError && <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">{formError}</p>}
             </div>
