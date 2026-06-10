@@ -253,3 +253,21 @@ export const engagementApi = {
     api.post("/engagement/outreach/bulk-schedule", data),
   send: (id: string) => api.post(`/engagement/outreach/${id}/send`),
 };
+
+// Auth (current staff user)
+export const authApi = {
+  me: () => api.get("/auth/me"),
+};
+
+// Integration API keys (org admin)
+export const integrationApi = {
+  listKeys: () => api.get("/integration/keys"),
+  createKey: (data: { name: string; scopes?: string[]; organization_id?: string }) =>
+    api.post("/integration/keys", data),
+  revokeKey: (id: string) => api.delete(`/integration/keys/${id}`),
+};
+
+// Medication safety (drug-interaction + allergy check)
+export const medicationSafetyApi = {
+  check: (patientId: string) => api.get(`/patients/${patientId}/medication-safety`),
+};

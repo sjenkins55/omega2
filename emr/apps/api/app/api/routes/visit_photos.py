@@ -9,7 +9,8 @@ from pydantic import BaseModel
 from app.db.base import get_db
 from app.models.visit_photo import VisitPhoto
 from app.models.visit import Visit
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, get_scoped_patient, can_access_org_row
+from app.models.patient import Patient
 from app.models.user import User
 
 router = APIRouter(tags=["visit_photos"])
@@ -45,11 +46,14 @@ class VisitPhotoResponse(BaseModel):
 async def list_photos(
     visit_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(select(Visit).where(Visit.id == visit_id))
-    if not result.scalar_one_or_none():
+    visit = result.scalar_one_or_none()
+    if not visit:
         raise HTTPException(404, "Visit not found")
+    # Enforce org isolation through the visit's patient (404 on other-org)
+    await get_scoped_patient(visit.patient_id, current_user, db)
     photos = await db.execute(
         select(VisitPhoto).where(VisitPhoto.visit_id == visit_id).order_by(VisitPhoto.created_at)
     )
@@ -74,6 +78,9 @@ async def upload_photo(
     if not visit:
         raise HTTPException(404, "Visit not found")
 
+    # Enforce org isolation through the visit's patient (404 on other-org)
+    patient = await get_scoped_patient(visit.patient_id, current_user, db)
+
     # Validate MIME type (server-side, not trusting client Content-Type)
     if file.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(415, f"Unsupported file type. Allowed: {', '.join(sorted(ALLOWED_MIME_TYPES))}")
@@ -84,7 +91,8 @@ async def upload_photo(
         raise HTTPException(413, f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)} MB")
 
     safe_name = _safe_filename(file.filename or "photo.jpg")
-    s3_key = f"visit-photos/{visit_id}/{uuid_mod.uuid4()}_{safe_name}"
+    org_prefix = str(patient.organization_id) if patient.organization_id else "shared"
+    s3_key = f"{org_prefix}/visit-photos/{visit_id}/{uuid_mod.uuid4()}_{safe_name}"
 
     # TODO: upload `content` to S3 using s3_key
 
@@ -119,6 +127,12 @@ async def delete_photo(
     result = await db.execute(select(VisitPhoto).where(VisitPhoto.id == photo_id))
     photo = result.scalar_one_or_none()
     if not photo:
+        raise HTTPException(404, "Photo not found")
+
+    # Org isolation: 404 if the photo's patient belongs to another org
+    patient_result = await db.execute(select(Patient).where(Patient.id == photo.patient_id))
+    patient = patient_result.scalar_one_or_none()
+    if patient and not can_access_org_row(patient.organization_id, current_user):
         raise HTTPException(404, "Photo not found")
 
     # Only the uploader or an admin may delete a wound photo

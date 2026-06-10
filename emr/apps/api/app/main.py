@@ -53,13 +53,16 @@ from app.models import visit_photo as _vp       # noqa: F401
 from app.models import eligibility as _elig     # noqa: F401
 from app.models import adt_event as _adt        # noqa: F401
 from app.models import organization as _org     # noqa: F401
+from app.models import document as _doc          # noqa: F401
+from app.models import engagement as _engm       # noqa: F401
+from app.models import integration_key as _ik    # noqa: F401
 
 from app.core.auth import get_current_user, get_current_patient
 from app.api.routes import (
     patients, visits, ingestion, workflows, engagement, admin, auth, portal,
     conditions, lab_results, tasks, notifications, care_plans, orders, oasis,
     plan_of_care, reports, audit, visit_photos, eligibility, adt, fhir,
-    vitals, discharge, chat,
+    vitals, discharge, chat, integration,
 )
 
 
@@ -112,6 +115,9 @@ app.include_router(chat.router,          prefix="/api/v1", dependencies=_staff_a
 # FHIR R4 — 21st Century Cures mandates patient access; staff JWT required here,
 # production should add SMART on FHIR / dedicated FHIR auth layer
 app.include_router(fhir.router,          prefix="/api/v1", dependencies=_staff_auth)
+
+# ── Integration API — per-org API keys (no staff JWT) ────────────────────────
+app.include_router(integration.router, prefix="/api/v1")
 
 # ── Patient portal routes — require portal JWT ───────────────────────────────
 app.include_router(portal.router, prefix="/api/v1", dependencies=[Depends(get_current_patient)])

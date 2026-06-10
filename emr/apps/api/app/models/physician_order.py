@@ -56,6 +56,7 @@ class PhysicianOrder(Base):
     is_verbal_order: Mapped[bool] = mapped_column(Boolean, default=False)
     verbal_order_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     written_order_received: Mapped[bool] = mapped_column(Boolean, default=False)
+    countersigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     notes: Mapped[str | None] = mapped_column(Text)
 

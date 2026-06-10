@@ -4,7 +4,7 @@ Workflows are DAGs of steps triggered by EMR events.
 """
 import uuid
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 import structlog
 
@@ -48,7 +48,7 @@ class CreateTaskStep(StepHandler):
             "due_in_hours": step_config.get("due_in_hours", 24),
             "priority": step_config.get("priority", "normal"),
             "patient_id": context.get("patient_id"),
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
         log.info("create_task", task_id=task["id"], title=task["title"])
         return {"task": task}
@@ -182,7 +182,7 @@ class WorkflowEngine:
                     continue
 
                 result = await handler.execute(step.get("config", {}), context)
-                step_results.append({"step_id": step_id, "type": step["type"], "result": result, "ts": datetime.utcnow().isoformat()})
+                step_results.append({"step_id": step_id, "type": step["type"], "result": result, "ts": datetime.now(timezone.utc).isoformat()})
                 context.update(result)
 
                 # Follow next steps
@@ -212,7 +212,7 @@ class WorkflowEngine:
             run.status = status
             run.step_results = step_results
             run.error = error
-            run.completed_at = datetime.utcnow()
+            run.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
 

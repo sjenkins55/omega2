@@ -68,8 +68,8 @@ async def _process_document(document_id: str, source_url: str | None):
                 doc.patient_id = patient_id
 
             doc.status = DocumentStatus.indexed
-            from datetime import datetime
-            doc.processed_at = datetime.utcnow()
+            from datetime import datetime, timezone
+            doc.processed_at = datetime.now(timezone.utc)
 
             # Trigger workflows
             for trigger_name in extracted.get("suggested_workflow_triggers", []):

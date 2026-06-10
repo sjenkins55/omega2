@@ -284,9 +284,9 @@ export default function SchedulePage() {
                           {Math.round(visit.risk * 100)}%
                         </span>
                         {visit.brief_ready ? (
-                          <Brain className="w-3.5 h-3.5 text-blue-500" title="AI Brief Ready" />
+                          <span title="AI Brief Ready"><Brain className="w-3.5 h-3.5 text-blue-500" /></span>
                         ) : (
-                          <Loader2 className="w-3.5 h-3.5 text-yellow-400 animate-spin" title="Generating Brief" />
+                          <span title="Generating Brief"><Loader2 className="w-3.5 h-3.5 text-yellow-400 animate-spin" /></span>
                         )}
                       </div>
                     </div>

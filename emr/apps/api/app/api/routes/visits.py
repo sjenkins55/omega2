@@ -2,15 +2,40 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from pydantic import BaseModel
 from app.db.base import get_db
+from app.core.auth import get_current_user, get_scoped_patient, can_access_org_row
 from app.models.visit import Visit, VisitStatus
 from app.models.patient import Patient
+from app.models.user import UserRole
 from app.schemas.visit import VisitCreate, VisitUpdate, VisitResponse, NoteSubmission
 
 router = APIRouter(prefix="/visits", tags=["visits"])
+
+
+async def _get_scoped_visit(visit_id: UUID, user, db: AsyncSession) -> Visit:
+    """Load a visit enforcing org isolation through its patient. 404 on miss or other-org."""
+    result = await db.execute(
+        select(Visit, Patient.organization_id)
+        .join(Patient, Visit.patient_id == Patient.id)
+        .where(Visit.id == visit_id)
+    )
+    row = result.first()
+    if not row or not can_access_org_row(row[1], user):
+        raise HTTPException(404, "Visit not found")
+    return row[0]
+
+
+def _org_scoped_visit_query(user):
+    query = select(Visit).join(Patient, Visit.patient_id == Patient.id)
+    if user.role != UserRole.super_admin:
+        query = query.where(
+            (Patient.organization_id == user.organization_id)
+            | (Patient.organization_id.is_(None))
+        )
+    return query
 
 
 @router.get("", response_model=list[VisitResponse])
@@ -19,8 +44,9 @@ async def list_visits(
     status: VisitStatus | None = None,
     limit: int = Query(50, le=200),
     db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    query = select(Visit)
+    query = _org_scoped_visit_query(current_user)
     if patient_id:
         query = query.where(Visit.patient_id == patient_id)
     if status:
@@ -31,17 +57,23 @@ async def list_visits(
 
 
 @router.get("/{visit_id}", response_model=VisitResponse)
-async def get_visit(visit_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Visit).where(Visit.id == visit_id))
-    visit = result.scalar_one_or_none()
-    if not visit:
-        raise HTTPException(404, "Visit not found")
-    return visit
+async def get_visit(
+    visit_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await _get_scoped_visit(visit_id, current_user, db)
 
 
 @router.post("", response_model=VisitResponse, status_code=201)
-async def create_visit(body: VisitCreate, db: AsyncSession = Depends(get_db)):
-    visit = Visit(**body.model_dump())
+async def create_visit(
+    body: VisitCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    await get_scoped_patient(body.patient_id, current_user, db)
+    data = {k: v for k, v in body.model_dump().items() if v is not None}
+    visit = Visit(**data)
     db.add(visit)
     await db.flush()
     await db.refresh(visit)
@@ -49,17 +81,18 @@ async def create_visit(body: VisitCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{visit_id}/pre-brief")
-async def get_pre_visit_brief(visit_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_pre_visit_brief(
+    visit_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     """
     Returns the AI-generated pre-visit brief for a scheduled visit.
     Generates on demand and caches on the visit record.
     """
     from app.modules.ai_engine.visit_brief import generate_pre_visit_brief
 
-    result = await db.execute(select(Visit).where(Visit.id == visit_id))
-    visit = result.scalar_one_or_none()
-    if not visit:
-        raise HTTPException(404, "Visit not found")
+    visit = await _get_scoped_visit(visit_id, current_user, db)
 
     if visit.pre_visit_brief:
         return visit.pre_visit_brief
@@ -72,19 +105,25 @@ async def get_pre_visit_brief(visit_id: UUID, db: AsyncSession = Depends(get_db)
 
 
 @router.post("/{visit_id}/start")
-async def start_visit(visit_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Visit).where(Visit.id == visit_id))
-    visit = result.scalar_one_or_none()
-    if not visit:
-        raise HTTPException(404, "Visit not found")
+async def start_visit(
+    visit_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    visit = await _get_scoped_visit(visit_id, current_user, db)
     visit.status = VisitStatus.in_progress
-    visit.started_at = datetime.utcnow()
+    visit.started_at = datetime.now(timezone.utc)
     await db.flush()
     return {"status": "started", "visit_id": str(visit_id)}
 
 
 @router.post("/{visit_id}/submit-note")
-async def submit_note(visit_id: UUID, body: NoteSubmission, db: AsyncSession = Depends(get_db)):
+async def submit_note(
+    visit_id: UUID,
+    body: NoteSubmission,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     """
     Accept a free-text or transcribed note, run AI processing,
     auto-generate SOAP note + action items + workflow triggers.
@@ -92,10 +131,7 @@ async def submit_note(visit_id: UUID, body: NoteSubmission, db: AsyncSession = D
     from app.modules.ai_engine.visit_brief import process_visit_note
     from app.modules.workflows.engine import workflow_engine
 
-    result = await db.execute(select(Visit).where(Visit.id == visit_id))
-    visit = result.scalar_one_or_none()
-    if not visit:
-        raise HTTPException(404, "Visit not found")
+    visit = await _get_scoped_visit(visit_id, current_user, db)
 
     visit.raw_note = body.raw_note
     visit.ai_processing_status = "processing"
@@ -115,7 +151,7 @@ async def submit_note(visit_id: UUID, body: NoteSubmission, db: AsyncSession = D
 
     if body.finalize:
         visit.status = VisitStatus.completed
-        visit.completed_at = datetime.utcnow()
+        visit.completed_at = datetime.now(timezone.utc)
         visit.note_finalized = True
 
         triggers = structured.get("workflow_triggers", [])
@@ -162,6 +198,7 @@ async def write_note_directly(
     visit_id: UUID,
     body: DirectNoteWrite,
     db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """
     Write note content directly into a visit without AI processing.
@@ -171,10 +208,7 @@ async def write_note_directly(
     """
     from app.modules.workflows.engine import workflow_engine
 
-    result = await db.execute(select(Visit).where(Visit.id == visit_id))
-    visit = result.scalar_one_or_none()
-    if not visit:
-        raise HTTPException(404, "Visit not found")
+    visit = await _get_scoped_visit(visit_id, current_user, db)
 
     if body.raw_note is not None:
         visit.raw_note = body.raw_note
@@ -212,7 +246,7 @@ async def write_note_directly(
 
     if body.finalize:
         visit.status = VisitStatus.completed
-        visit.completed_at = datetime.utcnow()
+        visit.completed_at = datetime.now(timezone.utc)
         visit.note_finalized = True
         await workflow_engine.trigger("visit_completed", {
             "patient_id": str(visit.patient_id),
@@ -234,11 +268,13 @@ async def write_note_directly(
 
 
 @router.patch("/{visit_id}", response_model=VisitResponse)
-async def update_visit(visit_id: UUID, body: VisitUpdate, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Visit).where(Visit.id == visit_id))
-    visit = result.scalar_one_or_none()
-    if not visit:
-        raise HTTPException(404, "Visit not found")
+async def update_visit(
+    visit_id: UUID,
+    body: VisitUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    visit = await _get_scoped_visit(visit_id, current_user, db)
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(visit, field, value)
     await db.flush()

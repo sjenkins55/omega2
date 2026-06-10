@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.db.base import get_db
 from app.models.visit import Visit, VisitStatus
 from app.models.patient import Patient
+from app.core.auth import get_current_user, get_scoped_patient
 
 router = APIRouter(tags=["vitals"])
 
@@ -23,13 +24,11 @@ class VitalThreshold(BaseModel):
 async def vitals_trend(
     patient_id: UUID,
     limit: int = Query(20, le=100),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Return time-series vitals extracted from completed visits, with breach alerts."""
-    r = await db.execute(select(Patient).where(Patient.id == patient_id))
-    patient = r.scalar_one_or_none()
-    if not patient:
-        raise HTTPException(404, "Patient not found")
+    patient = await get_scoped_patient(patient_id, current_user, db)
 
     visits = (await db.execute(
         select(Visit)

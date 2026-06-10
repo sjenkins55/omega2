@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from sqlalchemy import String, Date, DateTime, JSON, ForeignKey, Enum as SAEnum, Boolean, Float, Index, Integer
+from sqlalchemy import String, Date, DateTime, JSON, ForeignKey, Enum as SAEnum, Boolean, Float, Index, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
@@ -29,10 +29,12 @@ class Patient(Base):
         Index("ix_patients_soc_date", "soc_date"),
         Index("ix_patients_risk_score", "ai_risk_score"),
         Index("ix_patients_org", "organization_id"),
+        # MRN is unique per organization, not globally — each agency has its own numbering
+        UniqueConstraint("mrn", "organization_id", name="uq_patient_mrn_org"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    mrn: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    mrn: Mapped[str] = mapped_column(String(50), index=True)
     first_name: Mapped[str] = mapped_column(String(100))
     last_name: Mapped[str] = mapped_column(String(100))
     date_of_birth: Mapped[date] = mapped_column(Date)

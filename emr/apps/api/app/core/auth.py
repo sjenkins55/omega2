@@ -84,6 +84,43 @@ async def get_current_patient(
     return patient
 
 
+def org_scope(query, model, user):
+    """Filter a select() to the user's organization (super_admins see all orgs).
+
+    Rows with organization_id IS NULL are visible to everyone — legacy data
+    created before multi-tenancy was introduced.
+    """
+    from app.models.user import UserRole
+
+    if user.role == UserRole.super_admin:
+        return query
+    return query.where(
+        (model.organization_id == user.organization_id)
+        | (model.organization_id.is_(None))
+    )
+
+
+def can_access_org_row(row_org_id, user) -> bool:
+    """True if the user may access a row stamped with row_org_id."""
+    from app.models.user import UserRole
+
+    if user.role == UserRole.super_admin or row_org_id is None:
+        return True
+    return row_org_id == user.organization_id
+
+
+async def get_scoped_patient(patient_id, user, db: AsyncSession):
+    """Load a patient enforcing org isolation. Raises 404 for missing OR
+    other-org patients (404 not 403, to avoid leaking patient existence)."""
+    from app.models.patient import Patient
+
+    result = await db.execute(select(Patient).where(Patient.id == patient_id))
+    patient = result.scalar_one_or_none()
+    if not patient or not can_access_org_row(patient.organization_id, user):
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return patient
+
+
 def require_admin(current_user=Depends(get_current_user)):
     """Route dependency — requires admin or super_admin role."""
     from app.models.user import UserRole

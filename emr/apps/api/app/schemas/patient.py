@@ -50,6 +50,7 @@ class PatientBase(BaseModel):
     diagnoses: list[DiagnosisItem] | None = None
     medications: list[MedicationItem] | None = None
     allergies: list[AllergyItem] | None = None
+    care_team: list[CareTeamMember] | None = None
 
     # Demographics
     preferred_name: str | None = None
@@ -89,11 +90,25 @@ class PatientBase(BaseModel):
 class PatientCreate(PatientBase):
     mrn: str
     status: PatientStatus = PatientStatus.active
+    # Settable only by super_admin / integration keys (route-guarded)
+    organization_id: UUID | None = None
+    # Backfill from a prior system (route-guarded)
+    ai_risk_score: float | None = None
+    ai_risk_factors: list | None = None
+    ai_last_reviewed: datetime | None = None
 
 
 class PatientUpdate(BaseModel):
+    mrn: str | None = None  # admin-only (route-guarded)
     first_name: str | None = None
     last_name: str | None = None
+    date_of_birth: date | None = None
+    gender: str | None = None
+    insurance_type: InsuranceType | None = None
+    insurance_id: str | None = None
+    ai_risk_score: float | None = None  # admin-only backfill (route-guarded)
+    ai_risk_factors: list | None = None
+    ai_last_reviewed: datetime | None = None
     phone: str | None = None
     email: str | None = None
     address: dict | None = None
@@ -137,7 +152,7 @@ class PatientResponse(PatientBase):
     id: UUID
     mrn: str
     status: PatientStatus
-    care_team: list[CareTeamMember] | None = None
+    organization_id: UUID | None = None
     ai_risk_score: float | None = None
     ai_risk_factors: list | None = None
     ai_last_reviewed: datetime | None = None

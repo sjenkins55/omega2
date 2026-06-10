@@ -6,10 +6,19 @@ from datetime import datetime
 from pydantic import BaseModel
 from app.db.base import get_db
 from app.models.notification import Notification
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, get_scoped_patient
 from app.models.user import User
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+
+
+class NotificationCreate(BaseModel):
+    user_id: UUID
+    patient_id: UUID | None = None
+    type: str
+    title: str
+    message: str
+    action_url: str | None = None
 
 
 class NotificationResponse(BaseModel):
@@ -25,6 +34,22 @@ class NotificationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+@router.post("", response_model=NotificationResponse, status_code=201)
+async def create_notification(
+    body: NotificationCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a notification for a user (workflow/integration hook)."""
+    if body.patient_id:
+        await get_scoped_patient(body.patient_id, current_user, db)
+    notif = Notification(**body.model_dump())
+    db.add(notif)
+    await db.flush()
+    await db.refresh(notif)
+    return notif
 
 
 @router.get("", response_model=list[NotificationResponse])

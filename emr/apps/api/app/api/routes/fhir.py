@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
 from app.db.base import get_db
+from app.core.auth import get_current_user, get_scoped_patient
 from app.models.patient import Patient
 from app.models.condition import Condition
 from app.models.lab_result import LabResult
@@ -73,16 +74,22 @@ def lab_to_fhir(l: LabResult) -> dict:
 
 
 @router.get("/Patient/{patient_id}")
-async def fhir_get_patient(patient_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Patient).where(Patient.id == patient_id))
-    p = result.scalar_one_or_none()
-    if not p:
-        raise HTTPException(404, "Patient not found")
+async def fhir_get_patient(
+    patient_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    p = await get_scoped_patient(patient_id, current_user, db)
     return patient_to_fhir(p)
 
 
 @router.get("/Patient/{patient_id}/Condition")
-async def fhir_get_conditions(patient_id: UUID, db: AsyncSession = Depends(get_db)):
+async def fhir_get_conditions(
+    patient_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    await get_scoped_patient(patient_id, current_user, db)
     result = await db.execute(select(Condition).where(Condition.patient_id == patient_id))
     conditions = result.scalars().all()
     return {
@@ -94,7 +101,12 @@ async def fhir_get_conditions(patient_id: UUID, db: AsyncSession = Depends(get_d
 
 
 @router.get("/Patient/{patient_id}/Observation")
-async def fhir_get_observations(patient_id: UUID, db: AsyncSession = Depends(get_db)):
+async def fhir_get_observations(
+    patient_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    await get_scoped_patient(patient_id, current_user, db)
     result = await db.execute(select(LabResult).where(LabResult.patient_id == patient_id))
     labs = result.scalars().all()
     return {

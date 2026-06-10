@@ -7,8 +7,18 @@ from pydantic import BaseModel
 from app.db.base import get_db
 from app.models.care_plan import CarePlan
 from app.models.patient import Patient
+from app.core.auth import get_current_user, get_scoped_patient, can_access_org_row
 
 router = APIRouter(tags=["care_plans"])
+
+
+async def _check_care_plan_org(plan: CarePlan, current_user, db: AsyncSession) -> None:
+    """404 if the care plan's patient belongs to another organization."""
+    org_id = (
+        await db.execute(select(Patient.organization_id).where(Patient.id == plan.patient_id))
+    ).scalar_one_or_none()
+    if not can_access_org_row(org_id, current_user):
+        raise HTTPException(404, "Care plan not found")
 
 
 class GoalItem(BaseModel):
@@ -19,6 +29,7 @@ class GoalItem(BaseModel):
 
 
 class CarePlanCreate(BaseModel):
+    created_by_id: UUID | None = None  # defaults to the current user
     status: str = "active"
     start_date: date | None = None
     review_date: date | None = None
@@ -39,6 +50,7 @@ class CarePlanUpdate(CarePlanCreate):
 class CarePlanResponse(BaseModel):
     id: UUID
     patient_id: UUID
+    created_by_id: UUID | None = None
     status: str
     start_date: date | None = None
     review_date: date | None = None
@@ -58,10 +70,12 @@ class CarePlanResponse(BaseModel):
 
 
 @router.get("/patients/{patient_id}/care-plans", response_model=list[CarePlanResponse])
-async def list_care_plans(patient_id: UUID, db: AsyncSession = Depends(get_db)):
-    r = await db.execute(select(Patient).where(Patient.id == patient_id))
-    if not r.scalar_one_or_none():
-        raise HTTPException(404, "Patient not found")
+async def list_care_plans(
+    patient_id: UUID,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await get_scoped_patient(patient_id, current_user, db)
     result = await db.execute(
         select(CarePlan).where(CarePlan.patient_id == patient_id).order_by(CarePlan.created_at.desc())
     )
@@ -69,11 +83,17 @@ async def list_care_plans(patient_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/patients/{patient_id}/care-plans", response_model=CarePlanResponse, status_code=201)
-async def create_care_plan(patient_id: UUID, body: CarePlanCreate, db: AsyncSession = Depends(get_db)):
-    r = await db.execute(select(Patient).where(Patient.id == patient_id))
-    if not r.scalar_one_or_none():
-        raise HTTPException(404, "Patient not found")
-    plan = CarePlan(patient_id=patient_id, **body.model_dump())
+async def create_care_plan(
+    patient_id: UUID,
+    body: CarePlanCreate,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await get_scoped_patient(patient_id, current_user, db)
+    data = body.model_dump()
+    if data.get("created_by_id") is None:
+        data["created_by_id"] = current_user.id
+    plan = CarePlan(patient_id=patient_id, **data)
     db.add(plan)
     await db.flush()
     await db.refresh(plan)
@@ -81,20 +101,31 @@ async def create_care_plan(patient_id: UUID, body: CarePlanCreate, db: AsyncSess
 
 
 @router.get("/care-plans/{plan_id}", response_model=CarePlanResponse)
-async def get_care_plan(plan_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_care_plan(
+    plan_id: UUID,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(CarePlan).where(CarePlan.id == plan_id))
     plan = result.scalar_one_or_none()
     if not plan:
         raise HTTPException(404, "Care plan not found")
+    await _check_care_plan_org(plan, current_user, db)
     return plan
 
 
 @router.patch("/care-plans/{plan_id}", response_model=CarePlanResponse)
-async def update_care_plan(plan_id: UUID, body: CarePlanUpdate, db: AsyncSession = Depends(get_db)):
+async def update_care_plan(
+    plan_id: UUID,
+    body: CarePlanUpdate,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(CarePlan).where(CarePlan.id == plan_id))
     plan = result.scalar_one_or_none()
     if not plan:
         raise HTTPException(404, "Care plan not found")
+    await _check_care_plan_org(plan, current_user, db)
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(plan, field, value)
     await db.flush()

@@ -5,6 +5,7 @@ from uuid import UUID
 from datetime import date, datetime
 from pydantic import BaseModel
 from app.db.base import get_db
+from app.core.auth import get_current_user, get_scoped_patient
 from app.models.patient import Patient, PatientStatus
 from app.models.visit import Visit
 
@@ -39,11 +40,9 @@ async def discharge_patient(
     patient_id: UUID,
     body: DischargeRequest,
     db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    result = await db.execute(select(Patient).where(Patient.id == patient_id))
-    patient = result.scalar_one_or_none()
-    if not patient:
-        raise HTTPException(404, "Patient not found")
+    patient = await get_scoped_patient(patient_id, current_user, db)
     if patient.status == PatientStatus.discharged:
         raise HTTPException(400, "Patient is already discharged")
 
@@ -87,11 +86,12 @@ async def discharge_patient(
 
 
 @router.get("/patients/{patient_id}/discharge-summary", response_model=DischargeSummaryResponse)
-async def get_discharge_summary(patient_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Patient).where(Patient.id == patient_id))
-    patient = result.scalar_one_or_none()
-    if not patient:
-        raise HTTPException(404, "Patient not found")
+async def get_discharge_summary(
+    patient_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    patient = await get_scoped_patient(patient_id, current_user, db)
     if patient.status != PatientStatus.discharged:
         raise HTTPException(400, "Patient has not been discharged")
 

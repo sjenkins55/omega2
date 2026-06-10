@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 import uuid
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, EmailStr
@@ -369,7 +369,7 @@ async def assign_territories(
         territory = result.scalar_one_or_none()
         if territory:
             territory.provider_id = provider_id
-            territory.updated_at = datetime.utcnow()
+            territory.updated_at = datetime.now(timezone.utc)
         else:
             territory = ProviderTerritory(zip_code=zip_code, provider_id=provider_id)
             db.add(territory)

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.db.base import get_db
 from app.models.eligibility import EligibilityCheck
 from app.models.patient import Patient
+from app.core.auth import get_current_user, get_scoped_patient
 
 router = APIRouter(tags=["eligibility"])
 
@@ -36,10 +37,12 @@ class EligibilityResponse(BaseModel):
 
 
 @router.get("/patients/{patient_id}/eligibility", response_model=list[EligibilityResponse])
-async def list_eligibility_checks(patient_id: UUID, db: AsyncSession = Depends(get_db)):
-    r = await db.execute(select(Patient).where(Patient.id == patient_id))
-    if not r.scalar_one_or_none():
-        raise HTTPException(404, "Patient not found")
+async def list_eligibility_checks(
+    patient_id: UUID,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await get_scoped_patient(patient_id, current_user, db)
     result = await db.execute(
         select(EligibilityCheck)
         .where(EligibilityCheck.patient_id == patient_id)
@@ -52,12 +55,10 @@ async def list_eligibility_checks(patient_id: UUID, db: AsyncSession = Depends(g
 async def check_eligibility(
     patient_id: UUID,
     body: EligibilityRequest,
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    r = await db.execute(select(Patient).where(Patient.id == patient_id))
-    patient = r.scalar_one_or_none()
-    if not patient:
-        raise HTTPException(404, "Patient not found")
+    patient = await get_scoped_patient(patient_id, current_user, db)
 
     # Production: call 270/271 EDI clearinghouse (Change Healthcare, Availity, etc.)
     # Stub response simulates a successful Medicare eligibility check.

@@ -206,8 +206,9 @@ async def _build_patient_detail(db: AsyncSession, p: Patient) -> str:
         lines.append("\nRecent Visits:")
         for v in visits:
             note_snippet = ""
-            if v.soap_note and isinstance(v.soap_note, dict):
-                assessment = v.soap_note.get("assessment") or v.soap_note.get("a") or ""
+            note = v.structured_note if isinstance(v.structured_note, dict) else None
+            if note or v.assessment:
+                assessment = (note.get("assessment") if note else None) or v.assessment or ""
                 if assessment:
                     note_snippet = f" — A: {str(assessment)[:120]}"
             lines.append(
