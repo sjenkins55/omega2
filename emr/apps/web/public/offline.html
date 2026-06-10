@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Offline — ConcertoCare EMR</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f9fafb; color: #111827;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0;
+    }
+    .card {
+      text-align: center; padding: 3rem 2.5rem; background: #fff;
+      border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); max-width: 24rem;
+    }
+    img { width: 64px; height: 64px; margin-bottom: 1rem; }
+    h1 { font-size: 1.25rem; margin: 0 0 .5rem; }
+    p { color: #6b7280; font-size: .9rem; line-height: 1.5; margin: 0 0 1.5rem; }
+    button {
+      background: #2563eb; color: #fff; border: 0; border-radius: .5rem;
+      padding: .6rem 1.5rem; font-size: .9rem; font-weight: 600; cursor: pointer;
+    }
+    button:hover { background: #1d4ed8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img src="/icons/icon-192.png" alt="ConcertoCare" />
+    <h1>You're offline</h1>
+    <p>ConcertoCare EMR needs a connection to protect patient data — clinical records are never stored on this device.</p>
+    <button onclick="location.reload()">Try again</button>
+  </div>
+</body>
+</html>
