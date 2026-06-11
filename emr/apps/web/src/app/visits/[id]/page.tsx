@@ -12,7 +12,7 @@ export default function VisitPage({ params }: { params: { id: string } }) {
   const qc = useQueryClient();
   const [noteText, setNoteText] = useState("");
   const [briefOpen, setBriefOpen] = useState(true);
-  const [soapOpen, setSoapOpen] = useState(false);
+  const [soapOpen, setSoapOpen] = useState(true);
   const [recording, setRecording] = useState(false);
 
   const { data: visitData } = useQuery({
@@ -41,7 +41,13 @@ export default function VisitPage({ params }: { params: { id: string } }) {
 
   const visit = visitData?.data;
   const brief = briefData?.data;
-  const structured = submitMutation.data?.data?.structured_note;
+  // Prefer the just-processed note, then whatever is saved on the visit
+  // (including notes the AI chat assistant wrote via update_visit)
+  const savedSoap =
+    visit && (visit.subjective || visit.objective || visit.assessment || visit.plan)
+      ? { subjective: visit.subjective, objective: visit.objective, assessment: visit.assessment, plan: visit.plan }
+      : visit?.structured_note;
+  const structured = submitMutation.data?.data?.structured_note ?? savedSoap;
   const actionItems = submitMutation.data?.data?.action_items ?? visit?.action_items ?? [];
 
   if (!visit) return <div className="py-12 text-center text-gray-400">Loading visit...</div>;

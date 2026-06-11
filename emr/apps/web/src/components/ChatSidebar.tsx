@@ -1,44 +1,66 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
+import { usePathname } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { MessageSquare, X, Send, Loader2, MapPin, AlertTriangle, ChevronDown } from "lucide-react";
+import {
+  MessageSquare, X, Send, Loader2, MapPin, AlertTriangle,
+  Wrench, CheckCircle2,
+} from "lucide-react";
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
-type Source = { type: string; id: string; name: string; mrn: string };
+type Action = { name: string; status: "running" | "done"; summary?: string };
+type ChatMessage = { role: "user" | "assistant"; content: string; actions?: Action[] };
 
 interface StreamEvent {
-  type: "sources" | "text" | "error";
+  type: "meta" | "text" | "tool" | "mutation" | "error";
   text?: string;
-  sources?: Source[];
   states?: string[];
+  name?: string;
+  status?: "running" | "done";
+  summary?: string;
   message?: string;
 }
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
-// Sample prompts to help clinicians get started
+const UUID_RE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
 const QUICK_PROMPTS = [
   "Who are my highest risk patients right now?",
+  "Find the closest nurse to a patient in Austin and book a visit this week",
+  "Which providers have the lightest schedule next week?",
   "Any critical lab results I should know about?",
-  "Which patients are due for recertification this month?",
-  "Show me patients with unrecaptured HCC conditions",
+];
+
+const VISIT_PROMPTS = [
+  "Draft the assessment and plan for this visit",
+  "Summarize this patient's chart before I walk in",
+  "Reschedule this visit to tomorrow morning",
 ];
 
 export function ChatSidebar() {
+  const pathname = usePathname();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [currentReply, setCurrentReply] = useState("");
-  const [sources, setSources] = useState<Source[]>([]);
+  const [currentActions, setCurrentActions] = useState<Action[]>([]);
   const [licensedStates, setLicensedStates] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Page context: anchor the agent to the visit/patient on screen
+  const visitMatch = pathname?.match(new RegExp(`^/visits/(${UUID_RE})`, "i"));
+  const patientMatch = pathname?.match(new RegExp(`^/patients/(${UUID_RE})`, "i"));
+  const visitId = visitMatch?.[1] ?? null;
+  const patientId = patientMatch?.[1] ?? null;
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [history, currentReply]);
+  }, [history, currentReply, currentActions]);
 
   const send = useCallback(async (messageText?: string) => {
     const text = (messageText ?? input).trim();
@@ -46,16 +68,20 @@ export function ChatSidebar() {
 
     setInput("");
     setError(null);
-    setSources([]);
     const userMsg: ChatMessage = { role: "user", content: text };
     const updatedHistory = [...history, userMsg];
     setHistory(updatedHistory);
     setStreaming(true);
     setCurrentReply("");
+    setCurrentActions([]);
 
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+
+    let reply = "";
+    const actions: Action[] = [];
+    let mutated = false;
 
     try {
       const resp = await fetch(`${BASE_URL}/chat`, {
@@ -67,6 +93,8 @@ export function ChatSidebar() {
         body: JSON.stringify({
           message: text,
           history: updatedHistory.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+          visit_id: visitId,
+          patient_id: patientId,
         }),
         signal: ctrl.signal,
       });
@@ -78,50 +106,95 @@ export function ChatSidebar() {
 
       const reader = resp.body?.getReader();
       const decoder = new TextDecoder();
-      let reply = "";
+      let buffer = "";
 
       while (reader) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split("\n")) {
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const raw = line.slice(6).trim();
           if (raw === "[DONE]") break;
           try {
             const evt: StreamEvent = JSON.parse(raw);
-            if (evt.type === "sources") {
-              setSources(evt.sources ?? []);
+            if (evt.type === "meta") {
               setLicensedStates(evt.states ?? []);
             } else if (evt.type === "text" && evt.text) {
               reply += evt.text;
               setCurrentReply(reply);
+            } else if (evt.type === "tool" && evt.name) {
+              if (evt.status === "running") {
+                actions.push({ name: evt.name, status: "running" });
+              } else {
+                const running = actions.filter((a) => a.name === evt.name && a.status === "running").pop();
+                if (running) {
+                  running.status = "done";
+                  running.summary = evt.summary;
+                } else {
+                  actions.push({ name: evt.name, status: "done", summary: evt.summary });
+                }
+              }
+              setCurrentActions([...actions]);
+            } else if (evt.type === "mutation") {
+              mutated = true;
             } else if (evt.type === "error") {
               throw new Error(evt.message);
             }
-          } catch (_) { /* ignore malformed events */ }
+          } catch (e) {
+            if (e instanceof Error && e.message && !(e instanceof SyntaxError)) throw e;
+          }
         }
       }
 
-      setHistory([...updatedHistory, { role: "assistant", content: reply }]);
+      setHistory([...updatedHistory, { role: "assistant", content: reply, actions }]);
     } catch (err: unknown) {
       if ((err as { name?: string }).name !== "AbortError") {
         setError((err as Error).message ?? "Something went wrong");
+        if (reply || actions.length) {
+          setHistory([...updatedHistory, { role: "assistant", content: reply, actions }]);
+        }
       }
     } finally {
       setStreaming(false);
       setCurrentReply("");
+      setCurrentActions([]);
+      if (mutated) {
+        // The AI wrote to the chart — refresh whatever the user is looking at
+        queryClient.invalidateQueries();
+      }
     }
-  }, [input, history, streaming]);
+  }, [input, history, streaming, visitId, patientId, queryClient]);
 
   const stop = () => {
     abortRef.current?.abort();
-    if (currentReply) {
-      setHistory((h) => [...h, { role: "assistant", content: currentReply }]);
+    if (currentReply || currentActions.length) {
+      setHistory((h) => [...h, { role: "assistant", content: currentReply, actions: currentActions }]);
     }
     setStreaming(false);
     setCurrentReply("");
+    setCurrentActions([]);
   };
+
+  const prompts = visitId ? VISIT_PROMPTS : QUICK_PROMPTS;
+
+  const ActionChips = ({ actions }: { actions: Action[] }) =>
+    actions.length === 0 ? null : (
+      <div className="space-y-1 mb-1.5">
+        {actions.map((a, i) => (
+          <div key={i} className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5">
+            {a.status === "running" ? (
+              <Loader2 className="w-3 h-3 animate-spin text-blue-500 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
+            )}
+            <span className="truncate">{a.summary ?? a.name.replace(/_/g, " ")}</span>
+          </div>
+        ))}
+      </div>
+    );
 
   return (
     <>
@@ -130,9 +203,7 @@ export function ChatSidebar() {
         onClick={() => setOpen((o) => !o)}
         className={cn(
           "fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-full shadow-lg text-sm font-medium transition-all",
-          open
-            ? "bg-gray-800 text-white"
-            : "bg-blue-600 text-white hover:bg-blue-700"
+          open ? "bg-gray-800 text-white" : "bg-blue-600 text-white hover:bg-blue-700"
         )}
       >
         <MessageSquare className="w-4 h-4" />
@@ -153,14 +224,20 @@ export function ChatSidebar() {
               <MessageSquare className="w-4 h-4 text-blue-600" />
               Clinical AI Assistant
             </h2>
-            {licensedStates.length > 0 && (
-              <div className="flex items-center gap-1 mt-0.5">
-                <MapPin className="w-3 h-3 text-gray-400" />
-                <span className="text-xs text-gray-500">
+            <div className="flex items-center gap-2 mt-0.5">
+              {licensedStates.length > 0 && (
+                <span className="flex items-center gap-1 text-xs text-gray-500">
+                  <MapPin className="w-3 h-3 text-gray-400" />
                   Scoped to: <span className="font-medium text-gray-700">{licensedStates.join(", ")}</span>
                 </span>
-              </div>
-            )}
+              )}
+              {(visitId || patientId) && (
+                <span className="flex items-center gap-1 text-xs text-blue-600">
+                  <Wrench className="w-3 h-3" />
+                  {visitId ? "Visit context" : "Patient context"}
+                </span>
+              )}
+            </div>
           </div>
           <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600">
             <X className="w-4 h-4" />
@@ -171,7 +248,7 @@ export function ChatSidebar() {
         <div className="mx-3 mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg shrink-0">
           <p className="text-xs text-amber-700 flex items-start gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            Responses are limited to patients in your licensed state(s). Do not share this session — it contains PHI.
+            This assistant can read and write the chart. Writes are saved as drafts for your review. Do not share this session — it contains PHI.
           </p>
         </div>
 
@@ -179,9 +256,11 @@ export function ChatSidebar() {
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {history.length === 0 && !streaming && (
             <div>
-              <p className="text-sm text-gray-400 mb-3">Ask anything about your patients:</p>
+              <p className="text-sm text-gray-400 mb-3">
+                {visitId ? "You're on a visit — try:" : "Ask, schedule, or document:"}
+              </p>
               <div className="space-y-2">
-                {QUICK_PROMPTS.map((p) => (
+                {prompts.map((p) => (
                   <button
                     key={p}
                     onClick={() => send(p)}
@@ -195,23 +274,27 @@ export function ChatSidebar() {
           )}
 
           {history.map((m, i) => (
-            <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-              <div
-                className={cn(
-                  "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm",
-                  m.role === "user"
-                    ? "bg-blue-600 text-white rounded-tr-sm"
-                    : "bg-gray-100 text-gray-800 rounded-tl-sm"
-                )}
-              >
-                <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
-              </div>
+            <div key={i} className={cn("flex flex-col", m.role === "user" ? "items-end" : "items-start")}>
+              {m.role === "assistant" && m.actions && <ActionChips actions={m.actions} />}
+              {m.content && (
+                <div
+                  className={cn(
+                    "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm",
+                    m.role === "user"
+                      ? "bg-blue-600 text-white rounded-tr-sm"
+                      : "bg-gray-100 text-gray-800 rounded-tl-sm"
+                  )}
+                >
+                  <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
+                </div>
+              )}
             </div>
           ))}
 
           {/* Streaming reply */}
           {streaming && (
-            <div className="flex justify-start">
+            <div className="flex flex-col items-start">
+              <ActionChips actions={currentActions} />
               <div className="max-w-[85%] bg-gray-100 text-gray-800 rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm">
                 {currentReply ? (
                   <p className="whitespace-pre-wrap leading-relaxed">{currentReply}<span className="inline-block w-1.5 h-4 bg-gray-400 animate-pulse ml-0.5 align-text-bottom" /></p>
@@ -229,21 +312,6 @@ export function ChatSidebar() {
             </div>
           )}
 
-          {/* Sources */}
-          {sources.length > 0 && !streaming && (
-            <details className="text-xs text-gray-400 cursor-pointer">
-              <summary className="flex items-center gap-1 select-none hover:text-gray-600">
-                <ChevronDown className="w-3 h-3" />
-                {sources.length} patient record{sources.length !== 1 ? "s" : ""} referenced
-              </summary>
-              <div className="mt-1 space-y-0.5 pl-4">
-                {sources.map((s) => (
-                  <div key={s.id}>{s.name} ({s.mrn})</div>
-                ))}
-              </div>
-            </details>
-          )}
-
           <div ref={bottomRef} />
         </div>
 
@@ -251,7 +319,7 @@ export function ChatSidebar() {
         <div className="px-4 py-3 border-t border-gray-100 shrink-0">
           {history.length > 0 && (
             <button
-              onClick={() => { setHistory([]); setSources([]); setError(null); }}
+              onClick={() => { setHistory([]); setError(null); }}
               className="text-xs text-gray-400 hover:text-gray-600 mb-2 block"
             >
               Clear conversation
@@ -262,7 +330,7 @@ export function ChatSidebar() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder="Ask about patients, conditions, labs…"
+              placeholder={visitId ? "Write the note, reschedule, ask anything…" : "Search, schedule, document, update charts…"}
               rows={2}
               className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={streaming}

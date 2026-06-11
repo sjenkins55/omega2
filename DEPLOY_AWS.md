@@ -182,6 +182,14 @@ DATABASE_URL=postgresql+asyncpg://... python -m app.db.seed
 # Prints the generated admin password ONCE — store it in a password manager
 ```
 
+Optional demo dataset (100 patients across TX/CA/FL/NY with geographic
+addresses for AI scheduling, 9 providers, ~200 visits) — for pilots and
+demos only, never on a production PHI database:
+
+```bash
+DATABASE_URL=postgresql+asyncpg://... python -m app.db.seed_demo
+```
+
 ## Step 6 — Frontend: Amplify Hosting (20 min)
 
 1. Console → **AWS Amplify** → Create new app → GitHub → select this repo
