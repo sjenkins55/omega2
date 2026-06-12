@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { MapPin, Users, ChevronRight, CheckSquare, Square, Search, RefreshCw } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 const PROVIDER_COLORS = [
   "bg-blue-100 text-blue-800 border-blue-200",
@@ -55,10 +55,17 @@ export default function TerritoriesPage() {
 
   useEffect(() => { load(); }, []);
 
+  function authHeaders(extra?: Record<string, string>): Record<string, string> {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    return { Authorization: `Bearer ${token}`, ...extra };
+  }
+
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/v1/admin/territories`);
+      const res = await fetch(`${API}/admin/territories`, {
+        headers: authHeaders(),
+      });
       const data = await res.json();
       setTerritories(data.territories ?? []);
       setProviders((data.providers ?? []).filter((p: Provider) => p.is_active));
@@ -71,7 +78,9 @@ export default function TerritoriesPage() {
     setActiveZip(zip);
     setPatientsLoading(true);
     try {
-      const res = await fetch(`${API}/api/v1/admin/territories/${zip}/patients`);
+      const res = await fetch(`${API}/admin/territories/${zip}/patients`, {
+        headers: authHeaders(),
+      });
       const data = await res.json();
       setZipPatients(data.patients ?? []);
     } finally {
@@ -83,9 +92,9 @@ export default function TerritoriesPage() {
     if (!selectedZips.size) return;
     setSaving(true);
     try {
-      await fetch(`${API}/api/v1/admin/territories/assign`, {
+      await fetch(`${API}/admin/territories/assign`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           zip_codes: Array.from(selectedZips),
           provider_id: assigningTo || null,
@@ -327,9 +336,9 @@ export default function TerritoriesPage() {
                       if (!e.target.value) return;
                       setSaving(true);
                       try {
-                        await fetch(`${API}/api/v1/admin/territories/assign`, {
+                        await fetch(`${API}/admin/territories/assign`, {
                           method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
+                          headers: authHeaders({ "Content-Type": "application/json" }),
                           body: JSON.stringify({ zip_codes: [activeZip], provider_id: e.target.value || null }),
                         });
                         await load();

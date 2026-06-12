@@ -1,9 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { visitsApi, patientsApi } from "@/lib/api";
-import { Visit, Patient } from "@/types";
-import { cn, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   ChevronLeft, ChevronRight, Brain, AlertTriangle,
   MapPin, Clock, CheckCircle2, Loader2, User
@@ -23,7 +22,7 @@ const VISIT_TYPE_COLORS: Record<string, { bg: string; border: string; label: str
 
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 7); // 7am–7pm
 
-function riskColor(score?: number) {
+function riskColor(score?: number | null) {
   if (!score) return "";
   if (score >= 0.9) return "text-red-600";
   if (score >= 0.7) return "text-orange-500";
@@ -31,23 +30,32 @@ function riskColor(score?: number) {
   return "text-green-600";
 }
 
-// Mock visits for demo — replace with real API query
-const MOCK_VISITS = [
-  { id: "v1", patient_id: "p1", visit_type: "skilled_nursing",  status: "scheduled",  scheduled_at: new Date().setHours(8,  0),  patient_name: "Voss, Eleanor",    risk: 0.94, dx: "HFrEF · CKD", address: "142 Maple St", brief_ready: true  },
-  { id: "v2", patient_id: "p2", visit_type: "physical_therapy", status: "scheduled",  scheduled_at: new Date().setHours(9, 30),  patient_name: "Liang, Dorothy",   risk: 0.82, dx: "Post-hip fx",  address: "88 Oak Ave",  brief_ready: true  },
-  { id: "v3", patient_id: "p3", visit_type: "skilled_nursing",  status: "in_progress",scheduled_at: new Date().setHours(11, 0),  patient_name: "Rodriguez, Manuel",risk: 0.87, dx: "COPD · HTN",   address: "310 Pine Rd", brief_ready: true  },
-  { id: "v4", patient_id: "p4", visit_type: "social_work",      status: "scheduled",  scheduled_at: new Date().setHours(13, 0),  patient_name: "Washington, Percy",risk: 0.76, dx: "Stroke · dysph",address: "55 Elm St",  brief_ready: false },
-  { id: "v5", patient_id: "p5", visit_type: "occupational_therapy",status:"scheduled",scheduled_at: new Date().setHours(14, 30), patient_name: "Hernandez, Juanita",risk:0.71, dx: "T1DM · neuropathy",address:"201 Cedar Ln",brief_ready: true },
-  { id: "v6", patient_id: "p6", visit_type: "skilled_nursing",  status: "completed",  scheduled_at: new Date().setHours(7,  0),  patient_name: "Moss, Robert",     risk: 0.63, dx: "CHF · AFib",   address: "17 Birch Pl", brief_ready: true  },
-  { id: "v7", patient_id: "p7", visit_type: "telehealth",       status: "scheduled",  scheduled_at: new Date().setHours(16, 0),  patient_name: "Kim, Grace",       risk: 0.45, dx: "DM2 · HTN",   address: "Telehealth",  brief_ready: true  },
-  { id: "v8", patient_id: "p8", visit_type: "aide",             status: "scheduled",  scheduled_at: new Date().setHours(10, 0),  patient_name: "Turner, James",    risk: 0.38, dx: "Post-surgical", address: "740 Spruce Dr",brief_ready:true },
-];
-
-function getTopOffset(ts: number) {
+function getTopOffset(ts: string | number) {
   const d = new Date(ts);
   const mins = (d.getHours() - 7) * 60 + d.getMinutes();
   return (mins / 60) * 80; // 80px per hour
 }
+
+type Patient = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  mrn: string;
+  ai_risk_score?: number | null;
+  primary_dx?: string | null;
+  address?: { line1?: string; city?: string; state?: string; zip?: string } | null;
+};
+
+type Visit = {
+  id: string;
+  patient_id: string;
+  visit_type: string;
+  status: string;
+  scheduled_at: string;
+  structured_note?: unknown;
+  assessment?: unknown;
+  clinician_id?: string | null;
+};
 
 export default function SchedulePage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -56,7 +64,28 @@ export default function SchedulePage() {
   const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
-  const todayVisits = MOCK_VISITS; // In production: filter by selectedDate
+  const { data: visitsData } = useQuery({
+    queryKey: ["visits"],
+    queryFn: () => visitsApi.list({ limit: 200 }),
+  });
+
+  const { data: patientsData } = useQuery({
+    queryKey: ["patients", "active"],
+    queryFn: () => patientsApi.list({ status: "active", limit: 200 }),
+  });
+
+  const visits: Visit[] = (visitsData as { data?: Visit[] })?.data ?? [];
+  const patients: Patient[] = (patientsData as { data?: { patients?: Patient[] } })?.data?.patients ?? [];
+
+  const patientMap = useMemo(() => {
+    const map: Record<string, Patient> = {};
+    patients.forEach(p => { map[p.id] = p; });
+    return map;
+  }, [patients]);
+
+  const todayVisits = visits.filter(v =>
+    v.scheduled_at && isSameDay(new Date(v.scheduled_at), selectedDate)
+  );
 
   const statusCounts = {
     completed: todayVisits.filter(v => v.status === "completed").length,
@@ -145,10 +174,7 @@ export default function SchedulePage() {
             <div className="text-xs text-gray-500 mb-1.5">AI Briefs</div>
             <div className="flex gap-2 text-xs">
               <span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-medium">
-                {todayVisits.filter(v => v.brief_ready).length} ready
-              </span>
-              <span className="bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded-full font-medium">
-                {todayVisits.filter(v => !v.brief_ready).length} pending
+                {todayVisits.length} ready
               </span>
             </div>
           </div>
@@ -244,6 +270,13 @@ export default function SchedulePage() {
                 const colors = VISIT_TYPE_COLORS[visit.visit_type] ?? { bg: "bg-gray-50", border: "border-gray-300", label: "?" };
                 const isCompleted = visit.status === "completed";
                 const isInProgress = visit.status === "in_progress";
+                const patient = patientMap[visit.patient_id];
+                const patientName = patient
+                  ? `${patient.last_name}, ${patient.first_name}`
+                  : visit.patient_id;
+                const risk = patient?.ai_risk_score;
+                const dx = patient?.primary_dx;
+                const address = patient?.address?.line1 ?? patient?.address?.city ?? "";
 
                 return (
                   <Link
@@ -272,22 +305,22 @@ export default function SchedulePage() {
                             <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
                           )}
                         </div>
-                        <div className="font-semibold text-sm text-gray-900 truncate">{visit.patient_name}</div>
-                        <div className="text-xs text-gray-500 truncate">{visit.dx}</div>
-                        <div className="flex items-center gap-1 mt-1">
-                          <MapPin className="w-3 h-3 text-gray-400 shrink-0" />
-                          <span className="text-xs text-gray-400 truncate">{visit.address}</span>
-                        </div>
+                        <div className="font-semibold text-sm text-gray-900 truncate">{patientName}</div>
+                        {dx && <div className="text-xs text-gray-500 truncate">{dx}</div>}
+                        {address && (
+                          <div className="flex items-center gap-1 mt-1">
+                            <MapPin className="w-3 h-3 text-gray-400 shrink-0" />
+                            <span className="text-xs text-gray-400 truncate">{address}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                        <span className={cn("text-xs font-bold", riskColor(visit.risk))}>
-                          {Math.round(visit.risk * 100)}%
-                        </span>
-                        {visit.brief_ready ? (
-                          <span title="AI Brief Ready"><Brain className="w-3.5 h-3.5 text-blue-500" /></span>
-                        ) : (
-                          <span title="Generating Brief"><Loader2 className="w-3.5 h-3.5 text-yellow-400 animate-spin" /></span>
+                        {risk != null && (
+                          <span className={cn("text-xs font-bold", riskColor(risk))}>
+                            {Math.round(risk * 100)}%
+                          </span>
                         )}
+                        <span title="AI Brief Ready"><Brain className="w-3.5 h-3.5 text-blue-500" /></span>
                       </div>
                     </div>
                   </Link>

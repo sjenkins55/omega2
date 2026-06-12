@@ -15,15 +15,18 @@ export default function VisitPage({ params }: { params: { id: string } }) {
   const [soapOpen, setSoapOpen] = useState(true);
   const [recording, setRecording] = useState(false);
 
-  const { data: visitData } = useQuery({
+  const { data: visitData, isError: visitError } = useQuery({
     queryKey: ["visit", params.id],
     queryFn: () => visitsApi.get(params.id),
+    retry: false,
   });
 
   const { data: briefData, isLoading: briefLoading } = useQuery({
     queryKey: ["visit-brief", params.id],
     queryFn: () => visitsApi.preBrief(params.id),
     enabled: !!visitData?.data,
+    retry: false,
+    throwOnError: false,
   });
 
   const startMutation = useMutation({
@@ -50,6 +53,7 @@ export default function VisitPage({ params }: { params: { id: string } }) {
   const structured = submitMutation.data?.data?.structured_note ?? savedSoap;
   const actionItems = submitMutation.data?.data?.action_items ?? visit?.action_items ?? [];
 
+  if (visitError) return <div className="py-12 text-center text-gray-400">Visit not found or failed to load.</div>;
   if (!visit) return <div className="py-12 text-center text-gray-400">Loading visit...</div>;
 
   return (

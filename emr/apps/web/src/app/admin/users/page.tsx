@@ -5,7 +5,7 @@ import {
   Key, ChevronDown, X, Check, RefreshCw,
 } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 const ROLES = [
   "admin", "physician", "nurse", "therapist",
@@ -89,10 +89,17 @@ export default function UsersAdminPage() {
 
   useEffect(() => { load(); }, []);
 
+  function authHeaders(extra?: Record<string, string>): Record<string, string> {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    return { Authorization: `Bearer ${token}`, ...extra };
+  }
+
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/v1/admin/users`);
+      const res = await fetch(`${API}/admin/users`, {
+        headers: authHeaders(),
+      });
       const data = await res.json();
       setUsers(data.users ?? []);
     } finally {
@@ -126,15 +133,15 @@ export default function UsersAdminPage() {
       if (form.password) body.password = form.password;
 
       const url = editUser
-        ? `${API}/api/v1/admin/users/${editUser.id}`
-        : `${API}/api/v1/admin/users`;
+        ? `${API}/admin/users/${editUser.id}`
+        : `${API}/admin/users`;
       const method = editUser ? "PATCH" : "POST";
 
       if (!editUser) body.password = form.password;
 
       const res = await fetch(url, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -150,9 +157,9 @@ export default function UsersAdminPage() {
   }
 
   async function toggleActive(u: User) {
-    await fetch(`${API}/api/v1/admin/users/${u.id}`, {
+    await fetch(`${API}/admin/users/${u.id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ is_active: !u.is_active }),
     });
     await load();
@@ -162,9 +169,9 @@ export default function UsersAdminPage() {
     if (!resetTarget || !newPassword) return;
     setResetSaving(true);
     try {
-      await fetch(`${API}/api/v1/admin/users/${resetTarget.id}`, {
+      await fetch(`${API}/admin/users/${resetTarget.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ password: newPassword }),
       });
       setResetTarget(null);

@@ -36,6 +36,7 @@ const SEVERITY_COLOR: Record<string, string> = {
 
 export default function VitalsPage() {
   const [selectedPatient, setSelectedPatient] = useState("");
+  const [filterDate, setFilterDate] = useState("");
 
   const { data: patientsData } = useQuery({
     queryKey: ["patients", "active"],
@@ -50,6 +51,10 @@ export default function VitalsPage() {
 
   const patients: Patient[] = patientsData?.data?.patients ?? [];
   const vitals: VitalsData | undefined = vitalsData?.data;
+  const filteredPoints = vitals?.data_points.filter((v) => {
+    if (!filterDate || !v.date) return true;
+    return v.date.slice(0, 10) === filterDate;
+  }) ?? [];
 
   return (
     <div className="space-y-6">
@@ -60,17 +65,31 @@ export default function VitalsPage() {
         <p className="text-sm text-gray-500 mt-0.5">Time-series vital signs with clinical alert detection</p>
       </div>
 
-      {/* Patient selector */}
-      <select
-        value={selectedPatient}
-        onChange={(e) => setSelectedPatient(e.target.value)}
-        className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white w-72"
-      >
-        <option value="">Select a patient…</option>
-        {patients.map((p) => (
-          <option key={p.id} value={p.id}>{p.last_name}, {p.first_name} — {p.mrn}</option>
-        ))}
-      </select>
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <select
+          value={selectedPatient}
+          onChange={(e) => setSelectedPatient(e.target.value)}
+          className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white w-72"
+        >
+          <option value="">Select a patient…</option>
+          {patients.map((p) => (
+            <option key={p.id} value={p.id}>{p.last_name}, {p.first_name} — {p.mrn}</option>
+          ))}
+        </select>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-500 shrink-0">Visit date:</label>
+          <input
+            type="date"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white"
+          />
+          {filterDate && (
+            <button onClick={() => setFilterDate("")} className="text-xs text-gray-400 hover:text-gray-600">Clear</button>
+          )}
+        </div>
+      </div>
 
       {vitals && (
         <>
@@ -108,9 +127,9 @@ export default function VitalsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {vitals.data_points.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No vitals recorded yet</td></tr>
-                ) : vitals.data_points.map((v) => (
+                {filteredPoints.length === 0 ? (
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">{filterDate ? "No vitals on this date" : "No vitals recorded yet"}</td></tr>
+                ) : filteredPoints.map((v) => (
                   <tr key={v.visit_id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-gray-700">{v.date ? new Date(v.date).toLocaleDateString() : "—"}</td>
                     <td className="px-4 py-3 font-medium">{v.weight_lbs ?? "—"}</td>

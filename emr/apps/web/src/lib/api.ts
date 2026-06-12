@@ -247,6 +247,8 @@ export const organizationsApi = {
 export const engagementApi = {
   list: (params?: { patient_id?: string; status?: string; limit?: number }) =>
     api.get("/engagement/outreach", { params }),
+  create: (data: { patient_id: string; outreach_type: string; channel: string; scheduled_at: string; message_content?: string }) =>
+    api.post("/engagement/outreach", data),
   composeMessage: (params: { patient_id: string; outreach_type: string; channel: string }) =>
     api.post("/engagement/outreach/compose", null, { params }),
   bulkSchedule: (data: Record<string, unknown>) =>

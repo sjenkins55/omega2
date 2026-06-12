@@ -1,10 +1,10 @@
 "use client";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { engagementApi } from "@/lib/api";
+import { engagementApi, patientsApi } from "@/lib/api";
 import { OutreachRecord } from "@/types";
 import { cn, formatDateTime } from "@/lib/utils";
-import { MessageSquare, Send, Loader2, Plus, Phone, Mail } from "lucide-react";
+import { MessageSquare, Send, Loader2, Plus, Phone, Mail, X } from "lucide-react";
 
 const CHANNEL_ICONS: Record<string, React.ReactNode> = {
   sms: <MessageSquare className="w-4 h-4" />,
@@ -23,9 +23,24 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function EngagementPage() {
   const qc = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({
+    patient_id: "",
+    outreach_type: "post_visit_checkin",
+    channel: "sms",
+    scheduled_at: "",
+    message_content: "",
+  });
+
   const { data, isLoading } = useQuery({
     queryKey: ["outreach"],
     queryFn: () => engagementApi.list({ limit: 100 }),
+  });
+
+  const { data: patientsData } = useQuery({
+    queryKey: ["patients", "active"],
+    queryFn: () => patientsApi.list({ status: "active", limit: 200 }),
+    enabled: showCreate,
   });
 
   const sendMutation = useMutation({
@@ -33,6 +48,23 @@ export default function EngagementPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["outreach"] }),
   });
 
+  const createMutation = useMutation({
+    mutationFn: () =>
+      engagementApi.create({
+        patient_id: form.patient_id,
+        outreach_type: form.outreach_type,
+        channel: form.channel,
+        scheduled_at: form.scheduled_at,
+        message_content: form.message_content || undefined,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["outreach"] });
+      setShowCreate(false);
+      setForm({ patient_id: "", outreach_type: "post_visit_checkin", channel: "sms", scheduled_at: "", message_content: "" });
+    },
+  });
+
+  const patients: Array<{ id: string; first_name: string; last_name: string }> = patientsData?.data ?? [];
   const records: OutreachRecord[] = data?.data ?? [];
   const pending = records.filter((r) => r.status === "scheduled");
 
@@ -43,10 +75,113 @@ export default function EngagementPage() {
           <h1 className="text-2xl font-semibold text-gray-900">Engagement</h1>
           <p className="text-sm text-gray-500">Patient outreach and communication — AI-personalized messages</p>
         </div>
-        <button className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
+        <button
+          onClick={() => setShowCreate((v) => !v)}
+          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700"
+        >
           <Plus className="w-4 h-4" /> Schedule Outreach
         </button>
       </div>
+
+      {/* Create form inline card */}
+      {showCreate && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-gray-900">New Outreach</h2>
+            <button onClick={() => setShowCreate(false)} className="text-gray-400 hover:text-gray-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Patient */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Patient</label>
+              <select
+                value={form.patient_id}
+                onChange={(e) => setForm((f) => ({ ...f, patient_id: e.target.value }))}
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select patient…</option>
+                {patients.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.first_name} {p.last_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Outreach type */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Outreach Type</label>
+              <select
+                value={form.outreach_type}
+                onChange={(e) => setForm((f) => ({ ...f, outreach_type: e.target.value }))}
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="post_visit_checkin">Post Visit Check-in</option>
+                <option value="high_risk_monthly">High Risk Monthly</option>
+                <option value="welcome_home_care">Welcome Home Care</option>
+                <option value="general_checkin">General Check-in</option>
+              </select>
+            </div>
+
+            {/* Channel */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Channel</label>
+              <select
+                value={form.channel}
+                onChange={(e) => setForm((f) => ({ ...f, channel: e.target.value }))}
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="sms">SMS</option>
+                <option value="email">Email</option>
+                <option value="phone">Phone</option>
+              </select>
+            </div>
+
+            {/* Scheduled at */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Scheduled At</label>
+              <input
+                type="datetime-local"
+                value={form.scheduled_at}
+                onChange={(e) => setForm((f) => ({ ...f, scheduled_at: e.target.value }))}
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          {/* Message */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Message (optional)</label>
+            <textarea
+              value={form.message_content}
+              onChange={(e) => setForm((f) => ({ ...f, message_content: e.target.value }))}
+              rows={3}
+              placeholder="Leave blank to auto-generate…"
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 justify-end">
+            <button
+              onClick={() => setShowCreate(false)}
+              className="px-4 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => createMutation.mutate()}
+              disabled={createMutation.isPending || !form.patient_id || !form.scheduled_at}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {createMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              Schedule
+            </button>
+          </div>
+        </div>
+      )}
 
       {pending.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-5">

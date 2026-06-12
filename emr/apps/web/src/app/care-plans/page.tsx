@@ -35,6 +35,7 @@ const GOAL_STATUS_COLOR: Record<string, string> = {
 
 export default function CarePlansPage() {
   const [selectedPatient, setSelectedPatient] = useState("");
+  const [filterDate, setFilterDate] = useState("");
 
   const { data: patientsData } = useQuery({
     queryKey: ["patients", "active"],
@@ -49,7 +50,10 @@ export default function CarePlansPage() {
 
   const patients: Patient[] = patientsData?.data?.patients ?? [];
   const plans: CarePlan[] = plansData?.data ?? [];
-  const activePlan = plans.find((p) => p.status === "active") ?? plans[0];
+  // If a date filter is set, pick the plan effective on/before that date; otherwise prefer active
+  const activePlan = filterDate
+    ? plans.filter((p) => !p.effective_date || p.effective_date <= filterDate).sort((a, b) => (b.effective_date ?? "").localeCompare(a.effective_date ?? ""))[0]
+    : plans.find((p) => p.status === "active") ?? plans[0];
 
   return (
     <div className="space-y-6">
@@ -60,16 +64,30 @@ export default function CarePlansPage() {
         <p className="text-sm text-gray-500 mt-0.5">Patient goals and care coordination plans</p>
       </div>
 
-      <select
-        value={selectedPatient}
-        onChange={(e) => setSelectedPatient(e.target.value)}
-        className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white w-72"
-      >
-        <option value="">Select a patient…</option>
-        {patients.map((p) => (
-          <option key={p.id} value={p.id}>{p.last_name}, {p.first_name} — {p.mrn}</option>
-        ))}
-      </select>
+      <div className="flex flex-wrap items-center gap-3">
+        <select
+          value={selectedPatient}
+          onChange={(e) => setSelectedPatient(e.target.value)}
+          className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white w-72"
+        >
+          <option value="">Select a patient…</option>
+          {patients.map((p) => (
+            <option key={p.id} value={p.id}>{p.last_name}, {p.first_name} — {p.mrn}</option>
+          ))}
+        </select>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-500 shrink-0">Visit date:</label>
+          <input
+            type="date"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white"
+          />
+          {filterDate && (
+            <button onClick={() => setFilterDate("")} className="text-xs text-gray-400 hover:text-gray-600">Clear</button>
+          )}
+        </div>
+      </div>
 
       {selectedPatient && !activePlan && (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">

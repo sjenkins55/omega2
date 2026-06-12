@@ -11,9 +11,11 @@ export default function PatientDetailPage({ params }: { params: { id: string } }
     queryFn: () => patientsApi.get(params.id),
   });
 
-  const { data: riskData, isLoading: riskLoading } = useQuery({
+  const { data: riskData } = useQuery({
     queryKey: ["patient-risk", params.id],
     queryFn: () => patientsApi.riskBrief(params.id),
+    retry: false,
+    throwOnError: false,
   });
 
   const patient = patientData?.data;
@@ -93,8 +95,10 @@ export default function PatientDetailPage({ params }: { params: { id: string } }
             </h3>
             <p className="text-sm font-medium text-gray-900 mb-2">{patient.primary_dx}</p>
             <div className="flex flex-wrap gap-2">
-              {(patient.diagnoses ?? []).map((dx: string) => (
-                <span key={dx} className="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded-full">{dx}</span>
+              {(patient.diagnoses ?? []).map((dx: any, i: number) => (
+                <span key={i} className="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded-full">
+                  {typeof dx === "string" ? dx : dx.description ?? dx.icd10_code ?? ""}
+                </span>
               ))}
             </div>
           </div>
@@ -137,8 +141,10 @@ export default function PatientDetailPage({ params }: { params: { id: string } }
               <p className="text-sm text-gray-400">None documented</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
-                {(patient.allergies ?? []).map((a: string) => (
-                  <span key={a} className="text-xs bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded">{a}</span>
+                {(patient.allergies ?? []).map((a: any, i: number) => (
+                  <span key={i} className="text-xs bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded">
+                    {typeof a === "string" ? a : a.allergen ?? ""}
+                  </span>
                 ))}
               </div>
             )}
