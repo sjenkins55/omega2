@@ -213,7 +213,7 @@ export function ChatSidebar() {
       {/* Sidebar panel */}
       <div
         className={cn(
-          "fixed right-0 top-0 h-full w-[420px] bg-white shadow-2xl border-l border-gray-200 flex flex-col z-30 transition-transform duration-200",
+          "fixed right-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl border-l border-gray-200 flex flex-col z-30 transition-transform duration-200",
           open ? "translate-x-0" : "translate-x-full"
         )}
       >
