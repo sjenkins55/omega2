@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { engagementApi, patientsApi } from "@/lib/api";
 import { OutreachRecord } from "@/types";
@@ -117,7 +117,7 @@ function OutreachForm({ onClose, patients }: { onClose: () => void; patients: Pa
   );
 }
 
-export default function EngagementPage() {
+function EngagementContent() {
   const qc = useQueryClient();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<"chase" | "history">("chase");
@@ -317,5 +317,13 @@ export default function EngagementPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function EngagementPage() {
+  return (
+    <Suspense fallback={<div className="py-12 text-center text-gray-400">Loading...</div>}>
+      <EngagementContent />
+    </Suspense>
   );
 }
