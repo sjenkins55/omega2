@@ -277,13 +277,14 @@ async def list_territories(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    zip_col = Patient.address["zip"].as_string()
     zip_counts_q = (
         select(
-            func.json_extract_path_text(Patient.address.cast(type_=None), "zip").label("zip"),
+            zip_col.label("zip"),
             func.count(Patient.id).label("patient_count"),
         )
         .where(Patient.address.is_not(None))
-        .group_by(func.json_extract_path_text(Patient.address.cast(type_=None), "zip"))
+        .group_by(zip_col)
     )
     counts_result = await db.execute(zip_counts_q)
     zip_counts = {row.zip: row.patient_count for row in counts_result if row.zip}
@@ -326,7 +327,7 @@ async def patients_by_zip(
 ) -> dict:
     result = await db.execute(
         select(Patient).where(
-            func.json_extract_path_text(Patient.address.cast(type_=None), "zip") == zip_code
+            Patient.address["zip"].as_string() == zip_code
         )
     )
     patients = result.scalars().all()
