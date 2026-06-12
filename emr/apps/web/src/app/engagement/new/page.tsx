@@ -2,10 +2,10 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-export default function WorkflowsNewPage() {
+export default function EngagementNewPage() {
   const router = useRouter();
   useEffect(() => {
-    router.replace("/workflows");
+    router.replace("/engagement?create=1");
   }, [router]);
   return null;
 }

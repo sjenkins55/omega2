@@ -8,7 +8,7 @@ import {
   MapPin, Clock, CheckCircle2, Loader2, User
 } from "lucide-react";
 import Link from "next/link";
-import { format, addDays, startOfWeek, isSameDay } from "date-fns";
+import { format, addDays, startOfWeek, isSameDay, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, startOfWeek as sowFn, endOfWeek } from "date-fns";
 
 const VISIT_TYPE_COLORS: Record<string, { bg: string; border: string; label: string }> = {
   skilled_nursing:    { bg: "bg-blue-50",   border: "border-blue-300",  label: "SN" },
@@ -60,13 +60,27 @@ type Visit = {
 export default function SchedulePage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [view, setView] = useState<"day" | "week">("day");
+  const [calMonth, setCalMonth] = useState(new Date());
 
-  const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  // Full month calendar grid
+  const monthStart = startOfMonth(calMonth);
+  const monthEnd = endOfMonth(calMonth);
+  const calStart = sowFn(monthStart, { weekStartsOn: 1 });
+  const calEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
+  const calDays = eachDayOfInterval({ start: calStart, end: calEnd });
 
-  const { data: visitsData } = useQuery({
-    queryKey: ["visits"],
-    queryFn: () => visitsApi.list({ limit: 200 }),
+  // Fetch scheduled + in_progress visits separately so DESC ordering doesn't cut off future visits
+  const { data: scheduledData } = useQuery({
+    queryKey: ["visits", "scheduled"],
+    queryFn: () => visitsApi.list({ status: "scheduled", limit: 200 }),
+  });
+  const { data: inProgressData } = useQuery({
+    queryKey: ["visits", "in_progress"],
+    queryFn: () => visitsApi.list({ status: "in_progress", limit: 50 }),
+  });
+  const { data: completedData } = useQuery({
+    queryKey: ["visits", "completed"],
+    queryFn: () => visitsApi.list({ status: "completed", limit: 100 }),
   });
 
   const { data: patientsData } = useQuery({
@@ -74,8 +88,15 @@ export default function SchedulePage() {
     queryFn: () => patientsApi.list({ status: "active", limit: 200 }),
   });
 
-  const visits: Visit[] = (visitsData as { data?: Visit[] })?.data ?? [];
+  const visits: Visit[] = [
+    ...((scheduledData as { data?: Visit[] })?.data ?? []),
+    ...((inProgressData as { data?: Visit[] })?.data ?? []),
+    ...((completedData as { data?: Visit[] })?.data ?? []),
+  ];
   const patients: Patient[] = (patientsData as { data?: { patients?: Patient[] } })?.data?.patients ?? [];
+
+  // Build a set of dates that have visits (for calendar dots)
+  const visitDates = new Set(visits.filter(v => v.scheduled_at).map(v => format(new Date(v.scheduled_at), "yyyy-MM-dd")));
 
   const patientMap = useMemo(() => {
     const map: Record<string, Patient> = {};
@@ -97,16 +118,16 @@ export default function SchedulePage() {
     <div className="flex gap-5 h-full">
       {/* Left sidebar — mini calendar + stats */}
       <div className="w-64 shrink-0 space-y-4">
-        {/* Mini calendar nav */}
+        {/* Mini calendar — full month */}
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center justify-between mb-3">
-            <button onClick={() => setSelectedDate(d => addDays(d, -7))} className="p-1 hover:bg-gray-100 rounded">
+            <button onClick={() => setCalMonth(m => subMonths(m, 1))} className="p-1 hover:bg-gray-100 rounded">
               <ChevronLeft className="w-4 h-4 text-gray-500" />
             </button>
             <span className="text-sm font-semibold text-gray-900">
-              {format(selectedDate, "MMMM yyyy")}
+              {format(calMonth, "MMMM yyyy")}
             </span>
-            <button onClick={() => setSelectedDate(d => addDays(d, 7))} className="p-1 hover:bg-gray-100 rounded">
+            <button onClick={() => setCalMonth(m => addMonths(m, 1))} className="p-1 hover:bg-gray-100 rounded">
               <ChevronRight className="w-4 h-4 text-gray-500" />
             </button>
           </div>
@@ -115,26 +136,35 @@ export default function SchedulePage() {
               <div key={i} className="text-xs text-gray-400 font-medium py-1">{d}</div>
             ))}
           </div>
-          <div className="grid grid-cols-7 text-center gap-y-1">
-            {weekDays.map((day) => (
-              <button
-                key={day.toISOString()}
-                onClick={() => setSelectedDate(day)}
-                className={cn(
-                  "text-xs w-7 h-7 rounded-full mx-auto flex items-center justify-center transition-colors",
-                  isSameDay(day, selectedDate)
-                    ? "bg-blue-600 text-white font-bold"
-                    : isSameDay(day, new Date())
-                    ? "border border-blue-400 text-blue-600 font-semibold"
-                    : "text-gray-700 hover:bg-gray-100"
-                )}
-              >
-                {format(day, "d")}
-              </button>
-            ))}
+          <div className="grid grid-cols-7 text-center gap-y-0.5">
+            {calDays.map((day) => {
+              const isSelected = isSameDay(day, selectedDate);
+              const isToday = isSameDay(day, new Date());
+              const isOtherMonth = format(day, "M") !== format(calMonth, "M");
+              const hasVisit = visitDates.has(format(day, "yyyy-MM-dd"));
+              return (
+                <div key={day.toISOString()} className="flex flex-col items-center">
+                  <button
+                    onClick={() => { setSelectedDate(day); setCalMonth(day); }}
+                    className={cn(
+                      "text-xs w-7 h-7 rounded-full flex items-center justify-center transition-colors",
+                      isSelected ? "bg-blue-600 text-white font-bold"
+                        : isToday ? "border border-blue-400 text-blue-600 font-semibold"
+                        : isOtherMonth ? "text-gray-300"
+                        : "text-gray-700 hover:bg-gray-100"
+                    )}
+                  >
+                    {format(day, "d")}
+                  </button>
+                  {hasVisit && !isSelected && (
+                    <div className="w-1 h-1 rounded-full bg-blue-400 -mt-0.5" />
+                  )}
+                </div>
+              );
+            })}
           </div>
           <button
-            onClick={() => setSelectedDate(new Date())}
+            onClick={() => { setSelectedDate(new Date()); setCalMonth(new Date()); }}
             className="mt-3 w-full text-xs text-blue-600 font-medium hover:underline"
           >
             Go to today

@@ -1,9 +1,11 @@
 "use client";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { patientsApi, visitsApi } from "@/lib/api";
-import { cn, riskTierColor, formatDateTime } from "@/lib/utils";
+import { cn, riskTierColor } from "@/lib/utils";
 import { Users, ClipboardList, AlertTriangle, Activity, TrendingUp, Zap } from "lucide-react";
 import Link from "next/link";
+import { isSameDay } from "date-fns";
 
 export default function DashboardPage() {
   const { data: patientsData } = useQuery({
@@ -11,15 +13,26 @@ export default function DashboardPage() {
     queryFn: () => patientsApi.list({ status: "active", limit: 200 }),
   });
 
+  const { data: scheduledData } = useQuery({
+    queryKey: ["visits", "scheduled"],
+    queryFn: () => visitsApi.list({ status: "scheduled", limit: 200 }),
+  });
+
   const patients = patientsData?.data?.patients ?? [];
   const highRisk = patients.filter((p: { ai_risk_score?: number }) => (p.ai_risk_score ?? 0) >= 0.7);
   const critRisk = patients.filter((p: { ai_risk_score?: number }) => (p.ai_risk_score ?? 0) >= 0.9);
+
+  const todayVisitCount = useMemo(() => {
+    const visits: { scheduled_at?: string }[] = (scheduledData as any)?.data ?? [];
+    const today = new Date();
+    return visits.filter(v => v.scheduled_at && isSameDay(new Date(v.scheduled_at), today)).length;
+  }, [scheduledData]);
 
   const stats = [
     { label: "Active Patients", value: patients.length, icon: Users, color: "text-blue-600 bg-blue-50" },
     { label: "High Risk", value: highRisk.length, icon: AlertTriangle, color: "text-orange-600 bg-orange-50" },
     { label: "Critical", value: critRisk.length, icon: TrendingUp, color: "text-red-600 bg-red-50" },
-    { label: "Today's Visits", value: "—", icon: ClipboardList, color: "text-green-600 bg-green-50" },
+    { label: "Today's Visits", value: todayVisitCount, icon: ClipboardList, color: "text-green-600 bg-green-50" },
   ];
 
   return (
@@ -79,10 +92,10 @@ export default function DashboardPage() {
             </h2>
             <div className="space-y-2">
               {[
-                { label: "Start a Visit Note", href: "/visits/new", color: "bg-blue-600 text-white hover:bg-blue-700" },
+                { label: "Schedule a Visit", href: "/visits/new", color: "bg-blue-600 text-white hover:bg-blue-700" },
                 { label: "Review Inbox / Faxes", href: "/ingestion", color: "bg-white text-gray-900 border border-gray-200 hover:bg-gray-50" },
-                { label: "Build a Workflow", href: "/workflows/new", color: "bg-white text-gray-900 border border-gray-200 hover:bg-gray-50" },
-                { label: "Schedule Outreach", href: "/engagement/new", color: "bg-white text-gray-900 border border-gray-200 hover:bg-gray-50" },
+                { label: "Patient Chase List", href: "/engagement", color: "bg-white text-gray-900 border border-gray-200 hover:bg-gray-50" },
+                { label: "Schedule Outreach", href: "/engagement?create=1", color: "bg-white text-gray-900 border border-gray-200 hover:bg-gray-50" },
               ].map((a) => (
                 <Link key={a.href} href={a.href} className={cn("block w-full text-center py-2 px-4 rounded-lg text-sm font-medium transition-colors", a.color)}>
                   {a.label}
