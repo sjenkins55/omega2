@@ -1,0 +1,41 @@
+services:
+  # FastAPI backend
+  - type: web
+    name: concertocare-api
+    runtime: python
+    rootDir: emr/apps/api
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # set manually in Render dashboard
+      - key: SECRET_KEY
+        generateValue: true  # Render auto-generates a random value
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: ENVIRONMENT
+        value: production
+      - key: CORS_ORIGINS
+        sync: false          # set to ["https://your-app.vercel.app"]
+      - key: AI_PROVIDER
+        value: anthropic
+    healthCheckPath: /health
+
+  # Next.js frontend (alternative to Vercel — use one or the other)
+  # - type: web
+  #   name: concertocare-web
+  #   runtime: node
+  #   rootDir: emr/apps/web
+  #   buildCommand: npm install && npm run build
+  #   startCommand: npm start
+  #   envVars:
+  #     - key: NEXT_PUBLIC_API_URL
+  #       sync: false
+
+databases:
+  # Uncomment to use Render's own PostgreSQL instead of Neon (free 90 days)
+  # - name: concertocare-db
+  #   databaseName: emr
+  #   user: emr
